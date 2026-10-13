@@ -12,8 +12,8 @@
 // ~/.agent-buddy/inbox/<session_id>.jsonl and delivered at the next
 // PostToolUse / UserPromptSubmit (as additionalContext) or Stop (as a block
 // reason, so Claude keeps going and reads it).
-// Also used by Codex (~/.codex/hooks.json): its events are tagged "agent": "codex"
-// and never block (remote-mode answers and chat delivery are Claude-only).
+// Also used by Codex (~/.codex/hooks.json): its events are tagged "agent": "codex",
+// and get the same remote-mode answers and chat delivery (Codex reads the same replies).
 //
 // `buddy say "<message>" [--urgent]`: any agent or script can put a message on
 // the buddy (the `buddy` command is a tiny wrapper around this binary).
@@ -181,10 +181,10 @@ let input = FileHandle.standardInput.readDataToEndOfFile()
 guard let obj = try? JSONSerialization.jsonObject(with: input) as? [String: Any] else { exit(0) }
 var event = obj["hook_event_name"] as? String ?? ""
 let isCodex = (obj["transcript_path"] as? String ?? "").contains("/.codex/")
-let remote = !isCodex && FileManager.default.fileExists(atPath: dir + "/remote-mode") && appAlive()
+let remote = FileManager.default.fileExists(atPath: dir + "/remote-mode") && appAlive()
 
-// Codex asking for approval: show it as "needs you" (the app never answers Codex).
-if isCodex && event == "PermissionRequest" {
+// Codex asking for approval outside remote mode: show it as "needs you".
+if isCodex && event == "PermissionRequest" && !remote {
     let tool = obj["tool_name"] as? String ?? "a tool"
     let what = summarize(tool: tool, input: obj["tool_input"] as? [String: Any] ?? [:])
     append(["hook_event_name": "Notification", "session_id": "codex-" + (obj["session_id"] as? String ?? ""),
@@ -247,9 +247,9 @@ if event == "UserPromptSubmit" || event == "Stop" {
 }
 
 // Deliver queued chat messages to the main agent (never into a subagent).
-let sessionId = obj["session_id"] as? String ?? ""
+let sessionId = (isCodex ? "codex-" : "") + (obj["session_id"] as? String ?? "")
 let isSubagent = obj["agent_id"] != nil
-if !isSubagent && !isCodex && ["PostToolUse", "UserPromptSubmit", "Stop"].contains(event) {
+if !isSubagent && ["PostToolUse", "UserPromptSubmit", "Stop"].contains(event) {
     let messages = takeInbox(sessionId)
     if !messages.isEmpty {
         append(out)
@@ -314,10 +314,10 @@ while Date() < deadline && appAlive() {
         default:
             break // "release": let Claude do its normal thing
         }
-        append(["hook_event_name": "RequestClosed", "request_id": requestId, "session_id": obj["session_id"] ?? ""])
+        append(["hook_event_name": "RequestClosed", "request_id": requestId, "session_id": sessionId])
         exit(0)
     }
     usleep(250_000)
 }
-append(["hook_event_name": "RequestClosed", "request_id": requestId, "session_id": obj["session_id"] ?? ""])
+append(["hook_event_name": "RequestClosed", "request_id": requestId, "session_id": sessionId])
 exit(0)
