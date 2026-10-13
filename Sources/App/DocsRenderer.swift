@@ -25,6 +25,7 @@ enum DocsRenderer {
         try? sampleConfig.data(using: .utf8)?.write(to: BuddyConfig.url)
         Notes.save("Ship the checkout dark mode, then review design-system #31.")
 
+        PanelTheme.choice = "Midnight" // the README's main images use the default dark theme
         let tracker = sampleTracker()
         var written: [String] = []
         func save(_ image: NSImage?, _ name: String) {
@@ -68,6 +69,26 @@ enum DocsRenderer {
         tracker.panelCompact = true
         save(snapshot(TaskListView(tracker: tracker).padding(14)), "panel-minimized.png")
         tracker.panelCompact = false
+
+        // Themes, side by side
+        tracker.panelTab = .agents
+        tracker.panelHeight = 300
+        var shots: [(String, NSImage)] = []
+        for theme in PanelTheme.all {
+            PanelTheme.choice = theme.name
+            if let img = snapshot(TaskListView(tracker: tracker).padding(10)) { shots.append((theme.name, img)) }
+        }
+        PanelTheme.choice = "Midnight"
+        let row = HStack(alignment: .top, spacing: 16) {
+            ForEach(shots, id: \.0) { name, img in
+                VStack(spacing: 8) {
+                    Image(nsImage: img).resizable().aspectRatio(contentMode: .fit).frame(width: 340)
+                    Text(name).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(Color(hex: 0xC9CDD8))
+                }
+            }
+        }
+        save(snapshot(card(row)), "themes.png")
+        tracker.panelHeight = 430
 
         // 4. Bubbles over the buddy
         save(snapshot(bubbleScene(text: "✅ payments-api: Fixed the flaky refund test; all 214 tests pass.",

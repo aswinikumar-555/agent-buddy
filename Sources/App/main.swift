@@ -236,6 +236,22 @@ final class Tracker: ObservableObject {
     }
     @Published var prodBannerOpen = false
 
+    /// Panel theme: "Auto", "Midnight", "Daylight", "Ocean" or "Sunset" (remembered).
+    @Published var panelTheme = PanelTheme.choice {
+        didSet {
+            PanelTheme.choice = panelTheme
+            UserDefaults.standard.set(panelTheme, forKey: "panelTheme")
+        }
+    }
+    private var appearanceWatch: NSObjectProtocol?
+    /// "Auto" theme: redraw when the Mac switches between light and dark.
+    func watchAppearance() {
+        appearanceWatch = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.objectWillChange.send() }
+        }
+    }
+
     /// Panel size you set by dragging its top-left corner or edges (remembered).
     static let defaultPanelWidth: CGFloat = 400
     static let defaultPanelHeight: CGFloat = 360   // the scrolling list area
@@ -420,6 +436,7 @@ final class Tracker: ObservableObject {
 
     func start() {
         if let envs = config.prodEnvs, !envs.isEmpty { ProdGuard.prodEnvs = Set(envs.map { $0.lowercased() }) }
+        watchAppearance()
         try? FileManager.default.createDirectory(at: buddyDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: repliesDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
@@ -2739,7 +2756,7 @@ struct RootView: View {
         VStack(alignment: .trailing, spacing: 6) {
             if tracker.expanded, let sid = tracker.chatSession {
                 ChatView(tracker: tracker, draft: tracker.chatDraft, sessionId: sid)
-                    .environment(\.colorScheme, .dark)
+                    .environment(\.colorScheme, Palette.scheme)
                     .transition(.panel)
             } else if tracker.expanded {
                 TaskListView(tracker: tracker)

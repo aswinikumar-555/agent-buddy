@@ -8,23 +8,92 @@ enum PanelTab: String, CaseIterable {
     case agents = "Agents", code = "Code", cloud = "Cloud", me = "Me"
 }
 
-/// The panel's fixed dark palette (it always looks the same, whatever the Mac's theme).
+/// A color scheme for the panel (⚙︎ → Theme). "Auto" follows the Mac's light/dark setting.
+struct PanelTheme {
+    let name: String
+    let isDark: Bool
+    let bg, border, text, muted, faint, raised, well, segment, pill, pillText: UInt32
+    let red, redText, orange, green, blue: UInt32
+    let needBg, needLabel, runBg, runNumber, runLabel, neutralBg, neutralLabel: UInt32
+    let alertBg, alertBorder, alertText, divider: UInt32
+
+    static let midnight = PanelTheme(
+        name: "Midnight", isDark: true,
+        bg: 0x17181D, border: 0x2A2C34, text: 0xECEDF2, muted: 0x8D91A3, faint: 0x6F7385, raised: 0x1D1F26,
+        well: 0x0F1014, segment: 0x2A2C35, pill: 0x22242B, pillText: 0xD6D8E0,
+        red: 0xFF4D6D, redText: 0xFF7A90, orange: 0xFF9F1C, green: 0x29C987, blue: 0x5B8CFF,
+        needBg: 0x3A1E27, needLabel: 0xE9B6C0, runBg: 0x3A2C17, runNumber: 0xFFB44D, runLabel: 0xE7CDA3,
+        neutralBg: 0x1E2433, neutralLabel: 0xA9B2C8,
+        alertBg: 0x22161B, alertBorder: 0x4A2531, alertText: 0xF2C7CF, divider: 0x23252D)
+
+    static let daylight = PanelTheme(
+        name: "Daylight", isDark: false,
+        bg: 0xF7F8FA, border: 0xDCDFE7, text: 0x1B1E2B, muted: 0x5E6479, faint: 0x868CA0, raised: 0xECEEF3,
+        well: 0xE4E7EE, segment: 0xFFFFFF, pill: 0xE9ECF2, pillText: 0x2A2D38,
+        red: 0xE5364F, redText: 0xC4223B, orange: 0xD97B00, green: 0x13A26B, blue: 0x3767DB,
+        needBg: 0xFCE4E8, needLabel: 0x9A3A48, runBg: 0xFDEFD9, runNumber: 0xB36400, runLabel: 0x82561A,
+        neutralBg: 0xE6EBF4, neutralLabel: 0x55607A,
+        alertBg: 0xFFF0F2, alertBorder: 0xF1B5BF, alertText: 0x8E2235, divider: 0xE1E4EB)
+
+    static let ocean = PanelTheme(
+        name: "Ocean", isDark: true,
+        bg: 0x0F1B2A, border: 0x1F3248, text: 0xE6EEF7, muted: 0x8FA3BA, faint: 0x6A7F96, raised: 0x152538,
+        well: 0x0A1420, segment: 0x1F3550, pill: 0x182A40, pillText: 0xCFDCEA,
+        red: 0xFF5C77, redText: 0xFF8A9C, orange: 0xFFAE42, green: 0x34D399, blue: 0x60A5FA,
+        needBg: 0x3A1E2E, needLabel: 0xF0B8C6, runBg: 0x33301C, runNumber: 0xFFC560, runLabel: 0xE8D6A8,
+        neutralBg: 0x173049, neutralLabel: 0xA6BDD6,
+        alertBg: 0x23172A, alertBorder: 0x4C2840, alertText: 0xF3C6D2, divider: 0x1C2E43)
+
+    static let sunset = PanelTheme(
+        name: "Sunset", isDark: true,
+        bg: 0x1E1715, border: 0x3A2B25, text: 0xF5ECE6, muted: 0xB39C8F, faint: 0x8C7769, raised: 0x271E1A,
+        well: 0x15100E, segment: 0x3A2C25, pill: 0x2D221D, pillText: 0xEADBD1,
+        red: 0xFF5A5F, redText: 0xFF8A80, orange: 0xFFB347, green: 0x5CCB8A, blue: 0x7AA7FF,
+        needBg: 0x44201F, needLabel: 0xF1BDB5, runBg: 0x45301A, runNumber: 0xFFC069, runLabel: 0xEBD2AE,
+        neutralBg: 0x2F2621, neutralLabel: 0xC9B4A6,
+        alertBg: 0x2A1916, alertBorder: 0x58302A, alertText: 0xF6CDC6, divider: 0x33261F)
+
+    static let all = [midnight, daylight, ocean, sunset]
+
+    /// The chosen theme ("Auto" picks Midnight or Daylight from the Mac's appearance).
+    nonisolated(unsafe) static var choice = UserDefaults.standard.string(forKey: "panelTheme") ?? "Auto"
+    static var current: PanelTheme {
+        if let t = all.first(where: { $0.name == choice }) { return t }
+        let dark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return dark ? midnight : daylight
+    }
+}
+
+/// The panel's colors, from the current theme.
 enum Palette {
-    static let bg = Color(hex: 0x17181D)
-    static let border = Color(hex: 0x2A2C34)
-    static let text = Color(hex: 0xECEDF2)
-    static let muted = Color(hex: 0x8D91A3)
-    static let faint = Color(hex: 0x6F7385)
-    static let raised = Color(hex: 0x1D1F26)
-    static let well = Color(hex: 0x0F1014)
-    static let segment = Color(hex: 0x2A2C35)
-    static let pill = Color(hex: 0x22242B)
-    static let pillText = Color(hex: 0xD6D8E0)
-    static let red = Color(hex: 0xFF4D6D)
-    static let redText = Color(hex: 0xFF7A90)
-    static let orange = Color(hex: 0xFF9F1C)
-    static let green = Color(hex: 0x29C987)
-    static let blue = Color(hex: 0x5B8CFF)
+    private static var t: PanelTheme { PanelTheme.current }
+    static var bg: Color { Color(hex: t.bg) }
+    static var border: Color { Color(hex: t.border) }
+    static var text: Color { Color(hex: t.text) }
+    static var muted: Color { Color(hex: t.muted) }
+    static var faint: Color { Color(hex: t.faint) }
+    static var raised: Color { Color(hex: t.raised) }
+    static var well: Color { Color(hex: t.well) }
+    static var segment: Color { Color(hex: t.segment) }
+    static var pill: Color { Color(hex: t.pill) }
+    static var pillText: Color { Color(hex: t.pillText) }
+    static var red: Color { Color(hex: t.red) }
+    static var redText: Color { Color(hex: t.redText) }
+    static var orange: Color { Color(hex: t.orange) }
+    static var green: Color { Color(hex: t.green) }
+    static var blue: Color { Color(hex: t.blue) }
+    static var needBg: Color { Color(hex: t.needBg) }
+    static var needLabel: Color { Color(hex: t.needLabel) }
+    static var runBg: Color { Color(hex: t.runBg) }
+    static var runNumber: Color { Color(hex: t.runNumber) }
+    static var runLabel: Color { Color(hex: t.runLabel) }
+    static var neutralBg: Color { Color(hex: t.neutralBg) }
+    static var neutralLabel: Color { Color(hex: t.neutralLabel) }
+    static var alertBg: Color { Color(hex: t.alertBg) }
+    static var alertBorder: Color { Color(hex: t.alertBorder) }
+    static var alertText: Color { Color(hex: t.alertText) }
+    static var divider: Color { Color(hex: t.divider) }
+    static var scheme: ColorScheme { t.isDark ? .dark : .light }
 }
 
 extension Color {
@@ -87,7 +156,7 @@ struct TaskListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(alignment: .topLeading) { ResizeHandles(tracker: tracker) }
         .shadow(color: .black.opacity(0.35), radius: 14, y: 4)
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, Palette.scheme)
     }
 
     // MARK: Header
@@ -154,6 +223,10 @@ struct TaskListView: View {
             Picker("Character", selection: $tracker.character) {
                 ForEach(BuddyCharacterKind.allCases) { Text($0.title).tag($0) }
             }
+            Picker("Theme", selection: $tracker.panelTheme) {
+                Text("Auto (follow the Mac)").tag("Auto")
+                ForEach(PanelTheme.all, id: \.name) { Text($0.name).tag($0.name) }
+            }
             Button("Reset panel size") { tracker.resetPanelSize() }
             Divider()
             Button("Clear finished agents") { tracker.clearDone() }
@@ -194,7 +267,7 @@ struct TaskListView: View {
             .buttonStyle(.plain)
             if tracker.prodBannerOpen {
                 ForEach(Array(reasons.prefix(4).enumerated()), id: \.offset) { _, reason in
-                    Text(reason).font(.system(size: 11)).foregroundStyle(Color(hex: 0xF2C7CF)).lineLimit(2)
+                    Text(reason).font(.system(size: 11)).foregroundStyle(Palette.alertText).lineLimit(2)
                 }
                 Button("Dismiss these commands") { tracker.prodCommands.removeAll() }
                     .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.muted)
@@ -202,7 +275,7 @@ struct TaskListView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x3A1E27)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.needBg))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.red.opacity(0.6), lineWidth: 1))
     }
 
@@ -213,15 +286,15 @@ struct TaskListView: View {
         let ecsDown = tracker.cloudDownCount
         return HStack(spacing: 6) {
             tile(tracker.panelNeedsYou, "need you", alert: tracker.panelNeedsYou > 0,
-                 tint: Color(hex: 0x3A1E27), number: Palette.redText, label: Color(hex: 0xE9B6C0)) { tracker.show(.agents) }
+                 tint: Palette.needBg, number: Palette.redText, label: Palette.needLabel) { tracker.show(.agents) }
             tile(tracker.runningAgents.count, "running", alert: false,
-                 tint: Color(hex: 0x3A2C17), number: Color(hex: 0xFFB44D), label: Color(hex: 0xE7CDA3)) { tracker.show(.agents) }
+                 tint: Palette.runBg, number: Palette.runNumber, label: Palette.runLabel) { tracker.show(.agents) }
             tile(failingPRs, "PRs failing", alert: failingPRs > 0,
-                 tint: Color(hex: 0x1E2433), number: failingPRs > 0 ? Palette.redText : Palette.text, label: Color(hex: 0xA9B2C8)) {
+                 tint: Palette.neutralBg, number: failingPRs > 0 ? Palette.redText : Palette.text, label: Palette.neutralLabel) {
                 tracker.show(.code)
             }
             tile(ecsDown, "cloud down", alert: ecsDown > 0,
-                 tint: Color(hex: 0x1E2433), number: ecsDown > 0 ? Palette.redText : Palette.text, label: Color(hex: 0xA9B2C8)) {
+                 tint: Palette.neutralBg, number: ecsDown > 0 ? Palette.redText : Palette.text, label: Palette.neutralLabel) {
                 tracker.show(.cloud)
             }
         }
@@ -340,8 +413,8 @@ struct AgentsTab: View {
                             .buttonStyle(.borderedProminent).tint(Palette.red).controlSize(.small)
                     }
                     .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x22161B)))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0x4A2531), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Palette.alertBg))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.alertBorder, lineWidth: 1))
                 }
                 if tracker.yesterdayNote != nil { YesterdayNoteCard(tracker: tracker) }
                 if tracker.endOfDayDue { EndOfDayCard(tracker: tracker, draft: tracker.noteDraft) }
@@ -564,7 +637,7 @@ struct StatusPills: View {
         .padding(.top, 10)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) { Rectangle().fill(Color(hex: 0x23252D)).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Palette.divider).frame(height: 1) }
     }
 
     private func pill(_ color: Color, _ text: String, action: @escaping () -> Void) -> some View {
@@ -684,7 +757,7 @@ struct LogErrorsSection: View {
                         .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.blue)
                     }
                     .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x22161B)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Palette.alertBg))
                 }
             }
         }
