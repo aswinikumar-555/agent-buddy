@@ -50,6 +50,15 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
     private var baseYaw: CGFloat = 0
     /// How far the head turns while watching agents work (the owl turns further).
     private var headTurn: CGFloat = 0.35
+    /// Where a festival hat sits on the head, its size, and what it replaces (the duck's cap).
+    private var hatAt = SCNVector3(0, 0.5, 0)
+    private var hatScale: CGFloat = 1
+    private var hatHides: [SCNNode] = []
+    /// Festival costume: a hat on the head, and props on the floor.
+    private var costume: Costume?
+    private let costumeHat = SCNNode()
+    private let costumeFloor = SCNNode()
+    private var costumeMotion: ((CGFloat) -> Void)?
 
     init(character: BuddyCharacterKind) {
         super.init()
@@ -61,6 +70,11 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         case .nova: buildNova()
         }
         scene.rootNode.addChildNode(rig)
+        costumeHat.position = hatAt
+        let k = hatScale * 1.45
+        costumeHat.scale = SCNVector3(k, k, k)
+        head.addChildNode(costumeHat)
+        scene.rootNode.addChildNode(costumeFloor)
         buildStudio()
     }
 
@@ -227,9 +241,12 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         head.addChildNode(sphere(0.46, plastic, at: SCNVector3(0, 0, 0)))
         head.addChildNode(sphere(0.22, beak, at: SCNVector3(0.45, -0.06, 0), scale: SCNVector3(1.45, 0.4, 1)))
         head.addChildNode(sphere(0.2, beak, at: SCNVector3(0.42, -0.14, 0), scale: SCNVector3(1.3, 0.3, 0.9)))
-        head.addChildNode(sphere(0.31, cap, at: SCNVector3(0, 0.33, 0), scale: SCNVector3(1, 0.62, 1)))
-        head.addChildNode(node(SCNCylinder(radius: 0.3, height: 0.04), cap, at: SCNVector3(0.18, 0.31, 0),
-                               scale: SCNVector3(1.25, 1, 1)))
+        let dome = sphere(0.31, cap, at: SCNVector3(0, 0.33, 0), scale: SCNVector3(1, 0.62, 1))
+        let brim = node(SCNCylinder(radius: 0.3, height: 0.04), cap, at: SCNVector3(0.18, 0.31, 0), scale: SCNVector3(1.25, 1, 1))
+        head.addChildNode(dome)
+        head.addChildNode(brim)
+        hatHides = [dome, brim]
+        hatAt = SCNVector3(0, 0.36, 0); hatScale = 0.85
         for z: CGFloat in [0.21, -0.21] {
             eyes.addChildNode(sphere(0.07, ink, at: SCNVector3(0.33, 0.1, z), scale: SCNVector3(1, 1.3, 1)))
             eyes.addChildNode(sphere(0.02, white, at: SCNVector3(0.38, 0.15, z * 1.08)))
@@ -276,6 +293,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         let white = pbr(0xFFFFFF, rough: 0.15)
         tints = [iris]
         headTurn = 0.75 // owls turn their heads a long way
+        hatAt = SCNVector3(0, 0.42, 0)
 
         rig.addChildNode(sphere(0.72, feather, at: SCNVector3(0, 0.9, 0), scale: SCNVector3(1, 1.12, 0.9)))
         rig.addChildNode(sphere(0.5, belly, at: SCNVector3(0, 0.8, 0.4), scale: SCNVector3(1, 1.2, 0.55)))
@@ -337,6 +355,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             arm.addChildNode(sphere(0.15, glove, at: SCNVector3(0, -0.52, 0)))
             rig.addChildNode(arm)
         }
+        hatAt = SCNVector3(0, 0.56, 0)
         head.position = SCNVector3(0, 1.78, 0)
         head.addChildNode(sphere(0.62, helmet, at: SCNVector3(0, 0, 0)))
         head.addChildNode(sphere(0.5, visor, at: SCNVector3(0, -0.02, 0.24), scale: SCNVector3(1.02, 0.78, 0.84)))
@@ -360,6 +379,228 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         }
     }
 
+    // MARK: Festival costumes
+
+    func set(costume new: Costume?) {
+        guard new != costume else { return }
+        costume = new
+        costumeHat.childNodes.forEach { $0.removeFromParentNode() }
+        costumeFloor.childNodes.forEach { $0.removeFromParentNode() }
+        for n in hatHides { n.isHidden = new.map(Self.isHat) ?? false }
+        var motion: ((CGFloat) -> Void)?
+        switch new {
+        case .partyHat?: motion = buildPartyHat()
+        case .santaHat?: buildSantaHat()
+        case .witchHat?: motion = buildWitchHat()
+        case .diya?: motion = buildDiyas()
+        case .holi?: motion = buildHoli()
+        case .flag?: motion = buildFlag()
+        case nil: break
+        }
+        lock.lock()
+        costumeMotion = motion
+        lock.unlock()
+    }
+
+    private static func isHat(_ c: Costume) -> Bool { [.partyHat, .santaHat, .witchHat].contains(c) }
+
+    /// A texture of vertical stripes (wraps around a cone as spirals of color).
+    private static func stripes(_ colors: [NSColor]) -> NSImage {
+        let size = NSSize(width: 256, height: 64)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let w = size.width / CGFloat(colors.count * 3)
+        for i in 0..<(colors.count * 3) {
+            colors[i % colors.count].setFill()
+            let x = CGFloat(i) * w
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: x, y: 0)); path.line(to: NSPoint(x: x + w, y: 0))
+            path.line(to: NSPoint(x: x + w + 40, y: size.height)); path.line(to: NSPoint(x: x + 40, y: size.height))
+            path.close(); path.fill()
+            path.transform(using: AffineTransform(translationByX: -size.width, byY: 0)); path.fill()
+        }
+        image.unlockFocus()
+        return image
+    }
+
+    private func buildPartyHat() -> (CGFloat) -> Void {
+        let paper = pbr(0xFFD166, rough: 0.45, clearcoat: 0.6)
+        paper.diffuse.contents = Self.stripes([NSColor(0xFF5E8A), NSColor(0xFFD166), NSColor(0x5B8CFF)])
+        let gold = pbr(0xFFD166, metal: 0.9, rough: 0.25)
+        let hat = SCNNode()
+        hat.eulerAngles = SCNVector3(0, 0, -0.22)
+        hat.addChildNode(node(SCNCone(topRadius: 0, bottomRadius: 0.22, height: 0.5), paper, at: SCNVector3(0, 0.24, 0)))
+        let pom = sphere(0.07, gold, at: SCNVector3(0, 0.5, 0))
+        hat.addChildNode(pom)
+        costumeHat.addChildNode(hat)
+        return { t in let k = 1 + 0.15 * sin(t * 6); pom.scale = SCNVector3(k, k, k) }
+    }
+
+    private func buildSantaHat() {
+        let red = pbr(0xD62839, rough: 0.85)
+        let fluff = pbr(0xFFFFFF, rough: 0.95)
+        let hat = SCNNode()
+        hat.eulerAngles = SCNVector3(0, 0, -0.18)
+        hat.addChildNode(node(SCNCone(topRadius: 0.05, bottomRadius: 0.3, height: 0.42), red, at: SCNVector3(0, 0.2, 0)))
+        // The tip flops over to one side.
+        hat.addChildNode(node(SCNCone(topRadius: 0.02, bottomRadius: 0.06, height: 0.24), red,
+                              at: SCNVector3(0.1, 0.44, 0), euler: SCNVector3(0, 0, -1.1)))
+        hat.addChildNode(sphere(0.08, fluff, at: SCNVector3(0.22, 0.4, 0)))
+        hat.addChildNode(node(SCNTorus(ringRadius: 0.3, pipeRadius: 0.07), fluff, at: SCNVector3(0, 0.0, 0)))
+        costumeHat.addChildNode(hat)
+        // A present at its feet.
+        let box = pbr(0x2EC27E, rough: 0.5, clearcoat: 0.5)
+        let ribbon = pbr(0xFFD166, metal: 0.6, rough: 0.3)
+        let gift = SCNNode()
+        gift.position = SCNVector3(-1.0, 0.2, 0.35)
+        gift.eulerAngles = SCNVector3(0, 0.4, 0)
+        gift.addChildNode(node(SCNBox(width: 0.4, height: 0.4, length: 0.4, chamferRadius: 0.03), box, at: SCNVector3(0, 0, 0)))
+        gift.addChildNode(node(SCNBox(width: 0.42, height: 0.42, length: 0.08, chamferRadius: 0.01), ribbon, at: SCNVector3(0, 0, 0)))
+        gift.addChildNode(node(SCNBox(width: 0.08, height: 0.42, length: 0.42, chamferRadius: 0.01), ribbon, at: SCNVector3(0, 0, 0)))
+        for s: CGFloat in [-1, 1] {
+            gift.addChildNode(node(SCNTorus(ringRadius: 0.07, pipeRadius: 0.025), ribbon, at: SCNVector3(s * 0.06, 0.24, 0),
+                                   euler: SCNVector3(CGFloat.pi / 2, 0, s * 0.5)))
+        }
+        costumeFloor.addChildNode(gift)
+    }
+
+    private func buildWitchHat() -> (CGFloat) -> Void {
+        let felt = pbr(0x3B2A5C, rough: 0.9)
+        let band = pbr(0xFF8A1F, rough: 0.5)
+        let hat = SCNNode()
+        hat.eulerAngles = SCNVector3(0, 0, 0.15)
+        hat.addChildNode(cylinder(0.5, 0.03, felt, at: SCNVector3(0, 0.02, 0)))
+        hat.addChildNode(node(SCNCone(topRadius: 0.02, bottomRadius: 0.27, height: 0.6), felt, at: SCNVector3(0, 0.32, 0)))
+        hat.addChildNode(cylinder(0.255, 0.07, band, at: SCNVector3(0, 0.08, 0)))
+        costumeHat.addChildNode(hat)
+        // A jack-o'-lantern with a flickering glow.
+        let pumpkin = pbr(0xF77F00, rough: 0.6, clearcoat: 0.3)
+        let stem = pbr(0x4F772D, rough: 0.8)
+        let flame = glow(0xFFD166)
+        let jack = SCNNode()
+        jack.position = SCNVector3(-1.05, 0.29, 0.4)
+        jack.scale = SCNVector3(1.3, 1.3, 1.3)
+        jack.eulerAngles = SCNVector3(0, 0.35, 0)
+        jack.addChildNode(sphere(0.28, pumpkin, at: SCNVector3(0, 0, 0), scale: SCNVector3(1.15, 0.82, 1)))
+        jack.addChildNode(cylinder(0.04, 0.12, stem, at: SCNVector3(0, 0.27, 0)))
+        for x: CGFloat in [-0.1, 0.1] {
+            jack.addChildNode(node(SCNCone(topRadius: 0, bottomRadius: 0.05, height: 0.07), flame,
+                                   at: SCNVector3(x, 0.06, 0.25), euler: SCNVector3(CGFloat.pi / 2.4, 0, 0)))
+        }
+        jack.addChildNode(sphere(0.1, flame, at: SCNVector3(0, -0.07, 0.24), scale: SCNVector3(1.3, 0.35, 0.3)))
+        costumeFloor.addChildNode(jack)
+        return { t in
+            flame.diffuse.contents = NSColor(0xFFD166).blended(withFraction: 0.35 + 0.35 * sin(t * 13) * sin(t * 7), of: .orange)
+        }
+    }
+
+    private func buildDiyas() -> (CGFloat) -> Void {
+        let clay = pbr(0xB5541C, rough: 0.75)
+        let paint = pbr(0xFFD166, metal: 0.5, rough: 0.35)
+        let flame = glow(0xFFC94A)
+        var flames: [SCNNode] = []
+        var lights: [SCNLight] = []
+        for (x, z) in [(CGFloat(-1.0), CGFloat(0.45)), (1.0, 0.45), (-0.55, 0.85)] {
+            let diya = SCNNode()
+            diya.position = SCNVector3(x, 0, z)
+            diya.scale = SCNVector3(1.4, 1.4, 1.4)
+            diya.addChildNode(node(SCNCone(topRadius: 0.2, bottomRadius: 0.1, height: 0.12), clay, at: SCNVector3(0, 0.06, 0)))
+            diya.addChildNode(node(SCNTorus(ringRadius: 0.19, pipeRadius: 0.02), paint, at: SCNVector3(0, 0.12, 0)))
+            let f = sphere(0.055, flame, at: SCNVector3(0, 0.22, 0), scale: SCNVector3(0.7, 1.5, 0.7))
+            f.castsShadow = false
+            diya.addChildNode(f)
+            let light = SCNLight()
+            light.type = .omni
+            light.color = NSColor(0xFFB347)
+            light.intensity = 35
+            light.attenuationStartDistance = 0
+            light.attenuationEndDistance = 0.8
+            let ln = SCNNode()
+            ln.light = light
+            ln.position = SCNVector3(0, 0.3, 0)
+            diya.addChildNode(ln)
+            flames.append(f); lights.append(light)
+            costumeFloor.addChildNode(diya)
+        }
+        return { t in
+            for (i, f) in flames.enumerated() {
+                let k = 1 + 0.12 * sin(t * 11 + CGFloat(i) * 2) * sin(t * 5 + CGFloat(i))
+                f.scale = SCNVector3(0.7 * k, 1.5 * (2 - k), 0.7 * k)
+                lights[i].intensity = 35 * k
+            }
+        }
+    }
+
+    private func buildHoli() -> (CGFloat) -> Void {
+        // Clouds of colored powder (gulal) swirling around.
+        let colors: [UInt32] = [0xFF4FA3, 0xFFD23F, 0x3BCEAC, 0x5B8CFF, 0xA06CD5, 0xFF8A1F]
+        var puffs: [(SCNNode, CGFloat, CGFloat, CGFloat)] = []
+        for i in 0..<12 {
+            let m = glow(colors[i % colors.count])
+            m.transparency = 0.55
+            let p = sphere(0.09 + CGFloat(i % 3) * 0.035, m, at: SCNVector3(0, 0, 0))
+            p.castsShadow = false
+            costumeFloor.addChildNode(p)
+            puffs.append((p, CGFloat(i) / 12 * 2 * .pi, 0.3 + CGFloat(i % 4) * 0.45, 1.05 + CGFloat(i % 3) * 0.12))
+        }
+        // Splashes of color on the floor.
+        for (i, c) in colors.enumerated() {
+            let m = glow(c)
+            m.transparency = 0.45
+            let a = CGFloat(i) / CGFloat(colors.count) * 2 * .pi
+            let splash = node(SCNCylinder(radius: 0.22, height: 0.005), m, at: SCNVector3(cos(a) * 1.0, 0.01, sin(a) * 0.6 + 0.2),
+                              scale: SCNVector3(1.3, 1, 0.8))
+            splash.castsShadow = false
+            costumeFloor.addChildNode(splash)
+        }
+        return { t in
+            for (p, phase, height, radius) in puffs {
+                let a = phase + t * 0.6
+                p.position = SCNVector3(cos(a) * radius, height + sin(t * 1.3 + phase) * 0.12, sin(a) * radius * 0.6)
+            }
+        }
+    }
+
+    /// The tricolor, fluttering on a pole beside the buddy.
+    private func buildFlag() -> (CGFloat) -> Void {
+        let size = NSSize(width: 300, height: 200)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor(0xFF9933).setFill(); NSRect(x: 0, y: 133, width: 300, height: 67).fill()
+        NSColor.white.setFill(); NSRect(x: 0, y: 67, width: 300, height: 66).fill()
+        NSColor(0x138808).setFill(); NSRect(x: 0, y: 0, width: 300, height: 67).fill()
+        NSColor(0x000080).setStroke()
+        let wheel = NSBezierPath(ovalIn: NSRect(x: 124, y: 74, width: 52, height: 52))
+        wheel.lineWidth = 4; wheel.stroke()
+        for i in 0..<24 {
+            let a = CGFloat(i) / 24 * 2 * .pi
+            let spoke = NSBezierPath()
+            spoke.move(to: NSPoint(x: 150, y: 100)); spoke.line(to: NSPoint(x: 150 + cos(a) * 26, y: 100 + sin(a) * 26))
+            spoke.lineWidth = 1.5; spoke.stroke()
+        }
+        image.unlockFocus()
+
+        let pole = pbr(0xC9CED8, metal: 0.8, rough: 0.3)
+        let cloth = SCNMaterial()
+        cloth.lightingModel = .physicallyBased
+        cloth.diffuse.contents = image
+        cloth.roughness.contents = 0.85
+        cloth.isDoubleSided = true
+        let flag = SCNNode()
+        flag.position = SCNVector3(-0.95, 0, 0.3)
+        flag.addChildNode(cylinder(0.025, 1.9, pole, at: SCNVector3(0, 0.95, 0)))
+        flag.addChildNode(sphere(0.045, pbr(0xFFD166, metal: 0.9, rough: 0.2), at: SCNVector3(0, 1.92, 0)))
+        let hinge = SCNNode()
+        hinge.position = SCNVector3(0, 1.62, 0)
+        let plane = SCNPlane(width: 0.66, height: 0.44)
+        plane.widthSegmentCount = 8
+        let cl = node(plane, cloth, at: SCNVector3(-0.34, 0, 0))
+        hinge.addChildNode(cl)
+        flag.addChildNode(hinge)
+        costumeFloor.addChildNode(flag)
+        return { t in hinge.eulerAngles = SCNVector3(0, 0.25 + sin(t * 2.6) * 0.18, sin(t * 3.3) * 0.03) }
+    }
+
     // MARK: Bolt (robot)
 
     private func buildBolt() {
@@ -381,6 +622,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             arm.addChildNode(sphere(0.13, metal, at: SCNVector3(0, -0.5, 0)))
             rig.addChildNode(arm)
         }
+        hatAt = SCNVector3(0, 0.48, 0); hatScale = 1.1
         head.position = SCNVector3(0, 1.62, 0)
         head.addChildNode(sphere(0.62, metal, at: SCNVector3(0, 0, 0), scale: SCNVector3(1.12, 0.86, 0.9)))
         head.addChildNode(sphere(0.5, screen, at: SCNVector3(0, -0.02, 0.36), scale: SCNVector3(1.1, 0.72, 0.45)))
@@ -588,6 +830,10 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         happy.isHidden = !isHappy
         eyes.scale = SCNVector3(1, eyesClosed || blink ? 0.08 : (mood == .waiting ? 1.15 : 1), 1)
         extra?(t, mood)
+        lock.lock()
+        let motion = costumeMotion
+        lock.unlock()
+        motion?(t)
     }
 }
 
@@ -607,6 +853,7 @@ struct Buddy3DView: NSViewRepresentable {
     let character: BuddyCharacterKind
     let mood: Mood
     var activity: BuddyActivity? = nil
+    var costume: Costume? = nil
 
     func makeCoordinator() -> Buddy3DScene { Buddy3DScene(character: character) }
 
@@ -621,11 +868,13 @@ struct Buddy3DView: NSViewRepresentable {
         view.isPlaying = true
         view.preferredFramesPerSecond = 30
         context.coordinator.set(mood: mood, activity: activity)
+        context.coordinator.set(costume: costume)
         return view
     }
 
     func updateNSView(_ view: SCNView, context: Context) {
         context.coordinator.set(mood: mood, activity: activity)
+        context.coordinator.set(costume: costume)
         // Calm moods don't need full frame rate; saves battery.
         view.preferredFramesPerSecond = mood == .idle ? 20 : 30
     }

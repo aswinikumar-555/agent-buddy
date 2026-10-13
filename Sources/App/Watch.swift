@@ -178,13 +178,17 @@ struct DayLog: Codable {
     var deploys: [Entry] = []
     var activeSeconds: Double = 0
     var agentSeconds: [String: Double] = [:]   // project → time agents spent working
+    var focusSeconds: [String: Double]?        // project → your time on it (timesheet); "Meetings", "Other"
+    var todosDone: [Entry]?
+    var meetings: [Entry]?
 
     static func key(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: date)
     }
-    static func url(_ day: String) -> URL { buddyDir.appendingPathComponent("days/\(day).json") }
+    static var dir = buddyDir.appendingPathComponent("days")
+    static func url(_ day: String) -> URL { dir.appendingPathComponent("\(day).json") }
 
     static func load(_ date: Date) -> DayLog {
         let day = key(date)
@@ -193,7 +197,7 @@ struct DayLog: Codable {
     }
 
     func save() {
-        try? FileManager.default.createDirectory(at: buddyDir.appendingPathComponent("days"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: DayLog.dir, withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(self) { try? data.write(to: DayLog.url(day), options: .atomic) }
     }
 
@@ -215,6 +219,17 @@ struct DayLog: Codable {
         if !deploys.isEmpty {
             out.append("• Deploys:")
             for e in deploys.suffix(8) { out.append("   – \(e.project): \(e.text)") }
+        }
+        if let done = todosDone, !done.isEmpty {
+            out.append("• To-dos done:")
+            for e in done { out.append("   – \(e.text)") }
+        }
+        if let m = meetings, !m.isEmpty {
+            out.append("• Meetings: " + m.map(\.text).joined(separator: ", "))
+        }
+        let focus = (focusSeconds ?? [:]).filter { $0.value >= 300 }.sorted { $0.value > $1.value }
+        if !focus.isEmpty {
+            out.append("• Your time: " + focus.map { "\($0.key) \(formatDuration($0.value))" }.joined(separator: ", "))
         }
         let byProject = agentSeconds.filter { $0.value >= 60 }.sorted { $0.value > $1.value }
         if !byProject.isEmpty {

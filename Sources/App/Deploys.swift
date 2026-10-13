@@ -78,6 +78,9 @@ struct BuddyConfig: Codable {
     var autoRemote: Bool?           // remote mode on when you step away (default true)
     var autoRemoteMinutes: Double?  // how long away counts (default 5)
     var juggle: Int?                // agents at once before the buddy suggests finishing one (default 5)
+    var meetings: Bool?             // meeting heads-up from the Calendar app (default true)
+    var meetingHeadsUpMinutes: Double?  // how long before a meeting to warn you (default 5)
+    var festivals: [Festival]?      // your own festivals and special days (added to the built-in ones)
 
     static var url = buddyDir.appendingPathComponent("config.json")
     static let defaults = BuddyConfig(

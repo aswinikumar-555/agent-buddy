@@ -22,6 +22,9 @@ enum DocsRenderer {
         try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         BuddyConfig.url = scratch.appendingPathComponent("config.json")
         Notes.url = scratch.appendingPathComponent("notes.json")
+        Todos.url = scratch.appendingPathComponent("todos.json")
+        ClaudeUsage.url = scratch.appendingPathComponent("usage.json")
+        DayLog.dir = scratch.appendingPathComponent("days")
         try? sampleConfig.data(using: .utf8)?.write(to: BuddyConfig.url)
         Notes.save("Ship the checkout dark mode, then review design-system #31.")
 
@@ -59,13 +62,26 @@ enum DocsRenderer {
         }
         save(snapshot(card(day)), "day.png")
 
+        // Festival costumes
+        let festivals: [(BuddyCharacterKind, Costume, String)] = [
+            (.nori, .diya, "Diwali"), (.bolt, .santaHat, "Christmas"), (.quackers, .partyHat, "New Year"),
+            (.sage, .witchHat, "Halloween"), (.nova, .flag, "Independence Day"), (.nori, .holi, "Holi"),
+        ]
+        let dressed = HStack(spacing: 10) {
+            ForEach(festivals, id: \.2) { kind, costume, label in
+                tile(kind, mood: .idle, activity: nil, label: label, costume: costume)
+            }
+        }
+        save(snapshot(card(dressed)), "festivals.png")
+
         // 3. The panel: each tab, and minimized
         tracker.panelWidth = 440
-        tracker.panelHeight = 430
         for tab in PanelTab.allCases {
             tracker.panelTab = tab
+            tracker.panelHeight = tab == .me ? 1010 : tab == .code ? 640 : 430
             save(snapshot(TaskListView(tracker: tracker).padding(14)), "panel-\(tab.rawValue.lowercased()).png")
         }
+        tracker.panelHeight = 430
         tracker.panelCompact = true
         save(snapshot(TaskListView(tracker: tracker).padding(14)), "panel-minimized.png")
         tracker.panelCompact = false
@@ -192,7 +208,21 @@ enum DocsRenderer {
         day.prsMerged = [.init(project: "shop-web", text: "#479 Faster product search", at: now)]
         day.deploys = [.init(project: "payments-api", text: "Deploy staging (main) · success", at: now)]
         day.agentSeconds = ["shop-web": 7400, "payments-api": 5200, "mobile-app": 2600]
+        day.focusSeconds = ["shop-web": 2.5 * 3600, "payments-api": 1.25 * 3600, "Meetings": 3600, "Other": 0.75 * 3600]
         t.today = day
+        t.todos = [Todo(text: "Review design-system #31"),
+                   Todo(text: "Write the runbook for webhook retries"),
+                   Todo(text: "Rotate the staging API keys", done: now)]
+        t.usage = ClaudeUsage(fiveHour: .init(percent: 42, resets: now.addingTimeInterval(2 * 3600 + 900)),
+                              week: .init(percent: 81, resets: now.addingTimeInterval(3 * 86_400)), at: now)
+        t.calendarAccess = .granted
+        t.meetings = [Meeting(id: "m1", title: "Design review", start: now.addingTimeInterval(12 * 60),
+                              end: now.addingTimeInterval(42 * 60), calendar: "Work", joinURL: URL(string: "https://meet.google.com/")),
+                      Meeting(id: "m2", title: "Sprint planning", start: now.addingTimeInterval(95 * 60),
+                              end: now.addingTimeInterval(155 * 60), calendar: "Work", joinURL: nil)]
+        t.prStats = PRStats(me: "alex", merged: 6, opened: 7, reviewed: 9, mergeHours: 19,
+                            board: [.init(login: "maya", merged: 9), .init(login: "alex", merged: 6), .init(login: "sam", merged: 5),
+                                    .init(login: "lee", merged: 3), .init(login: "ari", merged: 2)], at: now)
         t.workStreakStart = now.addingTimeInterval(-(72 * 60))
         t.mood = .waiting
         return t
@@ -201,8 +231,9 @@ enum DocsRenderer {
     // MARK: Pieces
 
     /// The 3D character (real scene, offscreen) with its 2D overlays, at a given moment.
-    static func character(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, t: Double, prod: Bool = false) -> some View {
-        let image = render3D(kind, mood: mood, activity: activity, t: t)
+    static func character(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, t: Double, prod: Bool = false,
+                          costume: Costume? = nil) -> some View {
+        let image = render3D(kind, mood: mood, activity: activity, t: t, costume: costume)
         let buddy = BuddyCharacter(character: kind, mood: mood, activity: activity, prod: prod, count: 0, alert: false, remote: false)
         return ZStack {
             Image(nsImage: image).resizable().frame(width: 130, height: 150).offset(y: 4)
@@ -214,12 +245,13 @@ enum DocsRenderer {
     private static var scenes: [String: Buddy3DScene] = [:]
     private static let device = MTLCreateSystemDefaultDevice()
 
-    static func render3D(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, t: Double) -> NSImage {
+    static func render3D(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, t: Double, costume: Costume? = nil) -> NSImage {
         let key = "\(kind.rawValue)"
         let scene = scenes[key] ?? Buddy3DScene(character: kind)
         scenes[key] = scene
         scene.scene.background.contents = NSColor.clear
         scene.set(mood: mood, activity: activity)
+        scene.set(costume: costume)
         scene.snapColor()
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = scene.scene
@@ -228,7 +260,8 @@ enum DocsRenderer {
         return renderer.snapshot(atTime: t, with: CGSize(width: 390, height: 450), antialiasingMode: .multisampling4X)
     }
 
-    static func tile(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, label: String, prod: Bool = false) -> some View {
+    static func tile(_ kind: BuddyCharacterKind, mood: Mood, activity: BuddyActivity?, label: String, prod: Bool = false,
+                     costume: Costume? = nil) -> some View {
         let t: Double = switch (mood, activity) {
         case (.celebrating, _): 0.43
         case (.working, _): 1.15
@@ -237,7 +270,7 @@ enum DocsRenderer {
         default: activity == nil ? 1.9 : 2.2
         }
         return VStack(spacing: 6) {
-            character(kind, mood: mood, activity: activity, t: t, prod: prod)
+            character(kind, mood: mood, activity: activity, t: t, prod: prod, costume: costume)
             Text(label).font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(Palette.muted)
         }
         .padding(.vertical, 6)

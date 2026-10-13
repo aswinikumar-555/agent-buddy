@@ -103,7 +103,7 @@ extension Color {
     }
 }
 
-private func eyebrow(_ text: String, color: Color = Palette.muted) -> some View {
+func eyebrow(_ text: String, color: Color = Palette.muted) -> some View {
     Text(text.uppercased())
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .tracking(0.8)
@@ -231,6 +231,7 @@ struct TaskListView: View {
             Divider()
             Button("Clear finished agents") { tracker.clearDone() }
             Toggle("Water reminders (hourly)", isOn: $tracker.waterOn)
+            Toggle("Festival costumes", isOn: $tracker.festivalCostumes)
             Toggle("Also show Mac notifications", isOn: $tracker.macNotifications)
             Divider()
             if tracker.napping {
@@ -479,6 +480,7 @@ struct CodeTab: View {
     var body: some View {
         if !tracker.logErrors.isEmpty { LogErrorsSection(tracker: tracker) }
         PRSection(tracker: tracker)
+        PRStatsSection(tracker: tracker)
         if !tracker.stacks.isEmpty || !tracker.tunnels.isEmpty {
             StackSection(tracker: tracker)
                 .padding(8)
@@ -511,6 +513,10 @@ struct MeTab: View {
             if tracker.waterDue { WaterCard(tracker: tracker) }
             if tracker.breakDue { BreakCard(tracker: tracker) }
         }
+        if tracker.calendarAccess != .unknown { MeetingsCard(tracker: tracker, now: now) }
+        TodoCard(tracker: tracker, draft: tracker.todoDraft)
+        UsageCard(tracker: tracker, now: now)
+        TimesheetCard(tracker: tracker, now: now)
         VStack(alignment: .leading, spacing: 10) {
             eyebrow("Today")
             meRow("figure.walk", "Working for \(formatDuration(tracker.workedFor))",
@@ -616,6 +622,19 @@ struct StatusPills: View {
                          tracker.gcp.isLoggedOut ? "GCP · log in" : "GCP") {
                         if tracker.gcp.isLoggedOut { tracker.loginGcp() } else { tracker.checkGcp() }
                     }
+                }
+                if let u = tracker.usage, let pct = [u.fiveHour?.percent, u.week?.percent].compactMap({ $0 }).max() {
+                    pill(UsageCard.color(pct), "Claude · \(Int(pct.rounded()))% used") { tracker.show(.me) }
+                }
+                if let m = tracker.meetings.first(where: { $0.isNow(Date()) || $0.start.timeIntervalSinceNow < 1800 }) {
+                    pill(m.isNow(Date()) ? Palette.red : Palette.orange,
+                         m.isNow(Date()) ? "In: \(oneLine(m.title, max: 24))" : "\(oneLine(m.title, max: 24)) in \(max(1, Int(m.start.timeIntervalSinceNow / 60))) min") {
+                        if m.joinURL != nil { tracker.joinMeeting(m) } else { tracker.show(.me) }
+                    }
+                }
+                let openTodos = tracker.todos.filter { $0.done == nil }.count
+                if openTodos > 0 {
+                    pill(Palette.blue, "To-do · \(openTodos)") { tracker.show(.me) }
                 }
                 pill(tracker.aws.isLoggedOut ? Palette.red : tracker.aws == .unknown ? Palette.faint : Palette.green,
                      tracker.aws.isLoggedOut ? "AWS · log in" : "AWS") {

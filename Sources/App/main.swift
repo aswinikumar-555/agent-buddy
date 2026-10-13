@@ -349,6 +349,37 @@ final class Tracker: ObservableObject {
     private var lastPRPoll = Date.distantPast
     private var prSeeded = false
 
+    // Pull request stats and leaderboard, last 7 days (every 30 min)
+    @Published var prStats: PRStats?
+    private var prStatsPolling = false
+    private var lastPRStats = Date.distantPast
+
+    // To-do list
+    @Published var todos = Todos.load()
+    let todoDraft = CardDraft()
+
+    // Claude plan usage (from the status line)
+    @Published var usage: ClaudeUsage?
+    private var lastUsageCheck = Date.distantPast
+
+    // Meetings from the Calendar app
+    @Published var meetings: [Meeting] = []
+    @Published var calendarAccess: MeetingWatcher.Access = .unknown
+    private let meetingWatcher = MeetingWatcher()
+    private var lastMeetingPoll = Date.distantPast
+    private var meetingAlerts = Set<String>()
+    var currentMeeting: Meeting? { meetings.first { $0.isNow(Date()) } }
+
+    // Timesheet: the project you're working on (the last one you gave an agent a prompt)
+    private var focus: (project: String, at: Date)?
+    @Published var timesheetWeek = false
+
+    // Festivals: the buddy dresses up
+    @Published var festival: Festival?
+    @Published var festivalCostumes = UserDefaults.standard.object(forKey: "festivalCostumes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(festivalCostumes, forKey: "festivalCostumes"); checkFestival(Date()) }
+    }
+
     // Disk, huge logs, stale worktrees (every 10 min)
     @Published var housekeeping = Housekeeping()
     private var lastHousekeeping = Date.distantPast
@@ -460,6 +491,13 @@ final class Tracker: ObservableObject {
         watcher.onUpdate = { [weak self] repo, runs in self?.mergeDeploys(repo: repo, runs: runs) }
         watcher.start()
         deployWatcher = watcher
+        if config.meetings ?? true {
+            meetingWatcher.requestAccess { [weak self] access in
+                self?.calendarAccess = access
+                self?.lastMeetingPoll = .distantPast
+            }
+        }
+        checkFestival(Date())
     }
 
     // herdr-only agents stay listed while their pane exists.
@@ -514,6 +552,9 @@ final class Tracker: ObservableObject {
         if let until = napUntil, now >= until { wake() }
         if !prPolling && now.timeIntervalSince(lastPRPoll) > 120 { pollPRs() }
         if now.timeIntervalSince(lastHousekeeping) > 600 { scanHousekeeping() }
+        if !prStatsPolling && now.timeIntervalSince(lastPRStats) > 1800 { pollPRStats() }
+        if now.timeIntervalSince(lastUsageCheck) > 20 { checkUsage(now) }
+        if now.timeIntervalSince(lastMeetingPoll) > 30 { checkMeetings(now) }
 
         let newMood: Mood = now < celebrateUntil ? .celebrating
             : now < alertUntil || !requests.isEmpty || tasks.contains { $0.state == .waiting }
@@ -590,7 +631,12 @@ final class Tracker: ObservableObject {
             }
             say("📨 Message delivered to \(project)", for: 3)
 
+        case "Todo":
+            addTodo((e["message"] as? String) ?? "")
+            return
+
         case "UserPromptSubmit":
+            focus = (project.replacingOccurrences(of: "codex · ", with: ""), Date())
             let task = AgentTask(id: sid, project: project, prompt: oneLine((e["prompt"] as? String) ?? ""),
                                  state: .working, started: Date())
             if let i = idx { tasks[i] = task } else { tasks.append(task) }
@@ -1158,11 +1204,12 @@ final class Tracker: ObservableObject {
     private func checkBreak(_ now: Date) {
         let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState,
                                                           eventType: CGEventType(rawValue: ~0) ?? .mouseMoved)
-        quietNow = napping || microphoneInUse()
+        quietNow = napping || microphoneInUse() || currentMeeting != nil
         lastIdle = idle
         checkAutoRemote(idle: idle)
         checkJuggling(now)
         trackToday(now, idle: idle)
+        checkFestival(now)
         checkWater(now, idle: idle)
         checkDaily(now, idle: idle)
         checkWorkday(now, idle: idle)
@@ -1473,6 +1520,16 @@ final class Tracker: ObservableObject {
         let dt = min(now.timeIntervalSince(lastActiveTick), 15)
         lastActiveTick = now
         if idle < 120 { today.activeSeconds += dt }
+        // Your time, for the timesheet: in a meeting, else the project you last prompted
+        // an agent in (for 20 min), else "Other".
+        if currentMeeting != nil {
+            today.focusSeconds = today.focusSeconds ?? [:]
+            today.focusSeconds!["Meetings", default: 0] += dt
+        } else if idle < 120 {
+            let name = focus.flatMap { now.timeIntervalSince($0.at) < 1200 ? $0.project : nil } ?? "Other"
+            today.focusSeconds = today.focusSeconds ?? [:]
+            today.focusSeconds![name, default: 0] += dt
+        }
         for t in tasks where t.state == .working {
             let name = t.project.replacingOccurrences(of: "codex · ", with: "")
             today.agentSeconds[name, default: 0] += dt
@@ -1584,6 +1641,139 @@ final class Tracker: ObservableObject {
 
     func reveal(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    // MARK: To-dos
+
+    func addTodo(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        withAnimation(.spring) { todos.append(Todo(text: oneLine(t, max: 200))) }
+        Todos.save(todos)
+        say("📝 Added to your to-dos: \(oneLine(t, max: 60))", for: 4, action: .tab(.me))
+    }
+
+    func toggleTodo(_ todo: Todo) {
+        guard let i = todos.firstIndex(where: { $0.id == todo.id }) else { return }
+        withAnimation(.spring) { todos[i].done = todos[i].done == nil ? Date() : nil }
+        Todos.save(todos)
+        if todos[i].done != nil {
+            logToday { $0.todosDone = ($0.todosDone ?? []) + [.init(project: "", text: todo.text, at: Date())] }
+            celebrateUntil = Date().addingTimeInterval(2.5)
+            let left = todos.filter { $0.done == nil }.count
+            say(left == 0 ? "🎉 All done! Nothing left on your list." : "✅ Done! \(left) left.", for: 3)
+        } else {
+            logToday { $0.todosDone?.removeAll { $0.text == todo.text } }
+        }
+    }
+
+    func deleteTodo(_ todo: Todo) {
+        withAnimation(.spring) { todos.removeAll { $0.id == todo.id } }
+        Todos.save(todos)
+    }
+
+    func clearDoneTodos() {
+        withAnimation(.spring) { todos.removeAll { $0.done != nil } }
+        Todos.save(todos)
+    }
+
+    // MARK: Claude plan usage
+
+    /// Warns once per limit window at 80% and again at 95%.
+    private func checkUsage(_ now: Date) {
+        lastUsageCheck = now
+        let u = ClaudeUsage.load()
+        if u != usage { usage = u }
+        guard let u, now.timeIntervalSince(u.at) < 6 * 3600 else { return }
+        for (name, window) in [("5-hour", u.fiveHour), ("weekly", u.week)] {
+            guard let w = window, let resets = w.resets else { continue }
+            let stamp = String(Int(resets.timeIntervalSince1970))
+            guard let level = [95, 80].first(where: { w.percent >= Double($0) }),
+                  UserDefaults.standard.string(forKey: "usageWarned.\(name).\(level)") != stamp else { continue }
+            for l in [80, 95] where l <= level { UserDefaults.standard.set(stamp, forKey: "usageWarned.\(name).\(l)") }
+            if level == 95 { alertUntil = now.addingTimeInterval(5) }
+            say("\(level == 95 ? "🚨" : "⚠️") You've used \(Int(w.percent))% of your Claude \(name) limit. It resets \(Tracker.when(resets)).",
+                for: 15, action: .tab(.me))
+            return
+        }
+    }
+
+    /// "at 4:30 PM", or "Thu at 4:30 PM" if it isn't today.
+    static func when(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDateInToday(date) ? "'at' h:mm a" : "EEE 'at' h:mm a"
+        return f.string(from: date)
+    }
+
+    // MARK: Meetings
+
+    private func checkMeetings(_ now: Date) {
+        lastMeetingPoll = now
+        guard meetingWatcher.access == .granted else { return }
+        let list = meetingWatcher.upcoming(now: now)
+        if list != meetings { meetings = list }
+        let lead = (config.meetingHeadsUpMinutes ?? 5) * 60
+        for m in list {
+            let link: BubbleAction = m.joinURL.map { .url($0) } ?? .tab(.me)
+            let join = m.joinURL == nil ? "" : " Click me to join."
+            let until = m.start.timeIntervalSince(now)
+            if until > 0 && until <= lead && meetingAlerts.insert("soon:" + m.id).inserted {
+                alertUntil = now.addingTimeInterval(4)
+                say("📅 \(m.title) in \(max(1, Int((until / 60).rounded()))) min.\(join)", for: 25, action: link)
+            } else if until <= 0 && until > -120 && meetingAlerts.insert("start:" + m.id).inserted {
+                alertUntil = now.addingTimeInterval(4)
+                say("📅 \(m.title) is starting.\(join)", for: 30, action: link)
+                logToday { $0.meetings = ($0.meetings ?? []) + [.init(project: m.calendar, text: m.title, at: m.start)] }
+            }
+        }
+    }
+
+    func joinMeeting(_ m: Meeting) {
+        if let url = m.joinURL { NSWorkspace.shared.open(url) }
+    }
+
+    func openCalendarPrivacy() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+    }
+
+    // MARK: Timesheet
+
+    func copyTimesheet(week: Bool) {
+        rollDay(Date())
+        today.save()
+        let days = week ? Timesheet.week(of: Date()) : [Timesheet.day(today, date: Date())]
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Timesheet.text(days), forType: .string)
+        say("📋 Timesheet copied. It pastes straight into a spreadsheet.", for: 4)
+    }
+
+    // MARK: Festivals
+
+    private func checkFestival(_ now: Date) {
+        let f = festivalCostumes ? Festival.on(now, extra: config.festivals ?? []) : nil
+        if f != festival { withAnimation(.spring) { festival = f } }
+        guard let f, let greeting = f.greeting else { return }
+        let key = DayLog.key(now) + f.name
+        guard UserDefaults.standard.string(forKey: "festivalGreeted") != key, lastIdle < 120 else { return }
+        UserDefaults.standard.set(key, forKey: "festivalGreeted")
+        celebrateUntil = now.addingTimeInterval(5)
+        say(greeting, for: 12)
+    }
+
+    // MARK: PR stats
+
+    func pollPRStats() {
+        guard PRWatcher.gh != nil else { return }
+        prStatsPolling = true
+        lastPRStats = Date()
+        let repos = config.repos
+        stackQueue.async {
+            let stats = PRStats.fetch(repos: repos)
+            DispatchQueue.main.async {
+                self.prStatsPolling = false
+                if let stats { self.prStats = stats }
+            }
+        }
     }
 
     // MARK: End of the workday
@@ -1710,6 +1900,7 @@ struct BuddyCharacter: View {
     var reminderEmoji: String? = nil
     var activity: BuddyActivity? = nil
     var prod = false
+    var costume: Costume? = nil
     let count: Int
     let alert: Bool
     let remote: Bool
@@ -1726,7 +1917,7 @@ struct BuddyCharacter: View {
             Color.clear.frame(width: 130, height: 150)
         } else {
             ZStack {
-                Buddy3DView(character: character, mood: mood, activity: activity)
+                Buddy3DView(character: character, mood: mood, activity: activity, costume: costume)
                     .id(character) // a new scene when the character changes
                     .frame(width: 130, height: 150)
                     .offset(y: 4)
@@ -2772,6 +2963,7 @@ struct RootView: View {
                            reminderEmoji: tracker.dueReminder.flatMap { $0.activity == nil ? ($0.emoji ?? "⏰") : nil },
                            activity: tracker.activity,
                            prod: tracker.prodActive,
+                           costume: tracker.festival?.costume,
                            count: tracker.needsYouCount > 0 ? tracker.needsYouCount : tracker.activeCount,
                            alert: tracker.needsYouCount > 0,
                            remote: tracker.remoteMode)
