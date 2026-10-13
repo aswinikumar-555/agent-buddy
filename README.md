@@ -6,12 +6,29 @@ You start Claude Code or Codex on a few tasks, switch to something else, and los
 
 Everything runs on your Mac. No account, no server, no tracking.
 
+<p align="center"><img src="docs/demo.gif" width="330" alt="Nori the cat on the desktop: it types while an agent works, raises a paw when one needs you, and jumps with confetti when the task is done, with a speech bubble for each"></p>
+
+```bash
+git clone https://github.com/aswinikumar-555/agent-buddy.git ~/agent-buddy && cd ~/agent-buddy && bash install.sh
+```
+
+That's the whole install ([details](#install-on-your-mac)). It builds on your Mac in about a minute.
+
+<p align="center">
+  <img src="docs/panel-agents.png" width="270" alt="The Agents tab: a permission request with Allow and Deny, running agents, and what finished today">
+  <img src="docs/panel-code.png" width="270" alt="The Code tab: pull requests with the first CI error, the local dev stack, and deploys">
+  <img src="docs/panel-cloud.png" width="270" alt="The Cloud tab: site health, AWS ECS and Google Cloud Run">
+</p>
+<p align="center"><sub>Click the buddy to open the panel: <b>Agents</b>, <b>Code</b>, <b>Cloud</b> and <b>Me</b> tabs, with status pills at the bottom.</sub></p>
+
 ---
 
 ## What it does
 
+<img src="docs/bubble.png" width="300" align="right" alt="A speech bubble: payments-api: Fixed the flaky refund test; all 214 tests pass.">
+
 **Your agents (Claude Code and Codex)**
-- Shows which agents are running, which need you, and what each one finished, in the agent's own words ("Fixed the flaky login test; all 214 tests pass").
+- Shows which agents are running, which need you, and what each one finished, in the agent's own words ("Fixed the flaky refund test; all 214 tests pass").
 - Click a bubble to jump straight to that agent's terminal.
 - **Remote mode:** approve permission prompts, answer an agent's questions, and reply when it finishes, all from the buddy. It can switch on by itself when you step away.
 - **Chat:** send a message to any agent from the buddy, whether it's working or idle.
@@ -39,6 +56,18 @@ All alerts appear in the buddy's speech bubble. Mac notifications are off by def
 
 ---
 
+## Pick your buddy
+
+Two 3D characters, lit and shaded on your Mac: **Nori** the cat and **Bolt** the chrome robot. Switch with ⚙︎ → Character. Each acts out what's going on: idle, working, needs you, done, and break time. Its collar (or antenna and ears) glows in the mood's color.
+
+<p align="center"><img src="docs/characters.png" width="820" alt="Nori the cat and Bolt the robot in five moods: idle, working with spinning gears, needs you with a question mark, done with confetti, and break time stretching"></p>
+
+It acts out your day too: it eats at lunch, drinks when it's time for water, falls asleep at night, and wears a red **PROD** band when something touches production.
+
+<p align="center"><img src="docs/day.png" width="640" alt="Nori eating noodles at lunch, sipping a drink, sleeping with floating Zs, and wearing a red PROD badge"></p>
+
+---
+
 ## Install on your Mac
 
 ### 1. What you need
@@ -58,7 +87,7 @@ All alerts appear in the buddy's speech bubble. Mac notifications are off by def
 ```bash
 git clone https://github.com/aswinikumar-555/agent-buddy.git ~/agent-buddy
 cd ~/agent-buddy
-./install.sh
+bash install.sh
 ```
 
 The installer:
@@ -76,7 +105,7 @@ The installer:
 - **Edit `~/.agent-buddy/config.json`** to add your repos, sites and so on (see [Configuration](#configuration)), then restart the buddy: right-click it → ⚙︎ → Quit, then `open ~/Applications/AgentBuddy.app`.
 - macOS may ask once whether Agent Buddy may **control Terminal**. That's only used when you click "jump to agent" or send a message to an agent in a Terminal tab.
 
-To update later: `cd ~/agent-buddy && git pull && ./install.sh`.
+To update later: `cd ~/agent-buddy && git pull && bash install.sh`.
 
 ---
 
@@ -96,6 +125,12 @@ To update later: `cd ~/agent-buddy && git pull && ./install.sh`.
 | Let an agent or script tell you something | `buddy say "Tests are green"` (add `--urgent` to keep it until dismissed) |
 
 The panel has four tabs: **Agents**, **Code** (PRs, local stack, deploys, errors), **Cloud** (sites, AWS ECS, Google Cloud Run, Codex cloud) and **Me** (reminders, today's summary, nap). The number tiles and status pills open the right tab.
+
+<p align="center">
+  <img src="docs/panel-me.png" width="270" alt="The Me tab: work time, water, lunch and sleep reminders, work hours, and today's summary with Copy for standup">
+  <img src="docs/panel-minimized.png" width="300" alt="The minimized panel: just the number tiles and status pills">
+</p>
+<p align="center"><sub>Left: the <b>Me</b> tab. Right: the panel minimized to just the numbers and status.</sub></p>
 
 ---
 
@@ -139,7 +174,7 @@ This watches projects that start their services with a `scripts/dev/ports.sh` po
 ## Uninstall
 
 ```bash
-cd ~/agent-buddy && ./uninstall.sh
+cd ~/agent-buddy && bash uninstall.sh
 ```
 
 This stops the app and removes it, its login item, its hooks, the `buddy` command, the `CLAUDE.md` / `AGENTS.md` section, and `~/.agent-buddy/`.
@@ -150,7 +185,7 @@ This stops the app and removes it, its login item, its hooks, the `buddy` comman
 
 | Problem | Fix |
 |---|---|
-| `xcrun: error` or `swiftc` not found during install | Run `xcode-select --install`, then `./install.sh` again |
+| `xcrun: error` or `swiftc` not found during install | Run `xcode-select --install`, then `bash install.sh` again |
 | The buddy doesn't appear | `open ~/Applications/AgentBuddy.app`. If it's off-screen after unplugging a display, it moves back on its own at the next start |
 | Agents don't show up | Restart the agent sessions after installing. For Codex, trust the hooks (Settings → Hooks → Trust all) |
 | No PRs or deploys | Install `gh`, run `gh auth login`, and list your repos in `repos` |
@@ -165,6 +200,12 @@ This stops the app and removes it, its login item, its hooks, the `buddy` comman
 ```bash
 swiftc -O -swift-version 5 Sources/App/*.swift -o build/AgentBuddy
 swiftc -O -swift-version 5 Sources/Hook/main.swift -o build/buddy-hook
+```
+
+The images in this README are drawn by the app itself from made-up sample data, so they always match the real UI. To redraw them after a change:
+
+```bash
+./build/AgentBuddy --render-docs docs
 ```
 
 - `Sources/App/` is the app (SwiftUI + SceneKit): `main.swift` (tracking and the buddy), `Panel.swift` (the panel), `Buddy3D.swift` (the 3D characters), plus one file per feature area.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds Agent Buddy, installs the Claude Code / Codex hooks, and starts it at login.
-# Safe to run again (after a git pull, or to rebuild).
+# Run it with: bash install.sh. Safe to run again (after a git pull, or to rebuild).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,7 +14,7 @@ MAJOR=$(sw_vers -productVersion | cut -d. -f1)
 if [ "$MAJOR" -lt 14 ]; then echo "Agent Buddy needs macOS 14 (Sonoma) or later; this Mac has $(sw_vers -productVersion)."; exit 1; fi
 if ! xcrun --find swiftc >/dev/null 2>&1; then
   echo "Apple's command line tools are missing. Run:  xcode-select --install"
-  echo "then run ./install.sh again."
+  echo "then run: bash install.sh."
   exit 1
 fi
 [ -x /usr/bin/python3 ] || { echo "python3 is missing (it comes with the command line tools: xcode-select --install)."; exit 1; }
