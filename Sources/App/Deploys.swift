@@ -37,7 +37,7 @@ struct DailyReminder: Codable, Equatable {
 /// Notes for tomorrow (~/.agent-buddy/notes.json), newest last.
 enum Notes {
     struct Note: Codable { let date: Date; let text: String }
-    static let url = buddyDir.appendingPathComponent("notes.json")
+    static var url = buddyDir.appendingPathComponent("notes.json")
 
     static func all() -> [Note] {
         guard let data = try? Data(contentsOf: url) else { return [] }
@@ -79,7 +79,7 @@ struct BuddyConfig: Codable {
     var autoRemoteMinutes: Double?  // how long away counts (default 5)
     var juggle: Int?                // agents at once before the buddy suggests finishing one (default 5)
 
-    static let url = buddyDir.appendingPathComponent("config.json")
+    static var url = buddyDir.appendingPathComponent("config.json")
     static let defaults = BuddyConfig(
         repos: [],   // e.g. ["your-org/your-repo"]: watched for deploys and your PRs
         deployWorkflowPattern: "(?i)deploy|promote|rollback|release",

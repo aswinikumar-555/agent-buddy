@@ -31,6 +31,9 @@ enum Gcp {
                       NSHomeDirectory() + "/google-cloud-sdk/bin/gcloud"]
         .first { FileManager.default.isExecutableFile(atPath: $0) }
 
+    /// gcloud is installed (or we're drawing the README images, which show sample Cloud Run data).
+    static var available: Bool { bin != nil || DocsRenderer.active }
+
     private static func run(_ args: [String]) -> (Int32, String) {
         guard let bin else { return (-1, "") }
         var env = ProcessInfo.processInfo.environment

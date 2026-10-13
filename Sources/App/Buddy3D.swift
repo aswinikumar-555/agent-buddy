@@ -48,6 +48,13 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         buildStudio()
     }
 
+    /// Jump straight to the mood's color (no fade), for still images.
+    func snapColor() {
+        lock.lock()
+        current = target
+        lock.unlock()
+    }
+
     func set(mood: Mood, activity: BuddyActivity? = nil) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         (NSColor(mood.color).usingColorSpace(.sRGB) ?? .systemBlue).getRed(&r, green: &g, blue: &b, alpha: &a)

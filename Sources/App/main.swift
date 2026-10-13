@@ -363,7 +363,7 @@ final class Tracker: ObservableObject {
 
     // Break reminders
     @Published var breakDue = false
-    private var workStreakStart: Date? = Date()
+    var workStreakStart: Date? = Date()
     private var lastBreakNag = Date.distantPast
     private var breaksSnoozedUntil = Date.distantPast
     @Published var remoteMode = FileManager.default.fileExists(atPath: remoteFlagURL.path) {
@@ -1722,7 +1722,7 @@ struct BuddyCharacter: View {
         }
     }
 
-    private func overlays(t: Double) -> some View {
+    func overlays(t: Double) -> some View {
         ZStack {
             extras(t: t)
             if prod {
@@ -2880,6 +2880,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 MainActor.assumeIsolated {
+    // `AgentBuddy --render-docs <folder>`: draw the README images and exit.
+    if let i = CommandLine.arguments.firstIndex(of: "--render-docs") {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        let dir = CommandLine.arguments.indices.contains(i + 1) ? CommandLine.arguments[i + 1] : "docs"
+        DocsRenderer.run(outDir: dir)
+    }
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate

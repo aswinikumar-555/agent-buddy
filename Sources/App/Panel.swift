@@ -92,24 +92,38 @@ struct TaskListView: View {
 
     // MARK: Header
 
+    /// Fits the width you've set: drops the title (then "Off duty") rather than wrapping.
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            headerRow(title: true, offDuty: true)
+            headerRow(title: true, offDuty: false)
+            headerRow(title: false, offDuty: false)
+        }
+    }
+
+    private func headerRow(title: Bool, offDuty: Bool) -> some View {
         HStack(spacing: 8) {
-            Text("Agent Buddy").font(.system(size: 16, weight: .semibold))
-            if tracker.offDuty {
+            if title {
+                Text("Agent Buddy").font(.system(size: 16, weight: .semibold)).lineLimit(1).fixedSize()
+            }
+            if offDuty && tracker.offDuty {
                 Text("Off duty").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.muted)
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Capsule().fill(Palette.pill))
+                    .fixedSize()
                     .help("Outside your work hours (\(tracker.workHours.start)–\(tracker.workHours.end)): work alerts are quiet")
             }
-            Spacer()
-            AwsPill(tracker: tracker)
-            if Gcp.bin != nil { GcpPill(tracker: tracker) }
+            Spacer(minLength: 4)
+            AwsPill(tracker: tracker).fixedSize()
+            if Gcp.available { GcpPill(tracker: tracker).fixedSize() }
             Button { tracker.autoRemoteOn = false; tracker.remoteMode.toggle() } label: {
                 Text(tracker.remoteMode ? "Remote on" : "Remote off")
                     .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
                     .padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Capsule().fill(tracker.remoteMode ? Palette.blue.opacity(0.25) : Palette.pill))
                     .foregroundStyle(tracker.remoteMode ? Palette.blue : Palette.muted)
+                    .fixedSize()
             }
             .buttonStyle(.plain)
             .help("Remote mode: agents wait for your answers here instead of the terminal")
@@ -437,6 +451,7 @@ struct MeTab: View {
                   (tracker.offDuty ? "Off duty now: work alerts are quiet · " : "") + tracker.workHours.days.joined(separator: " "))
         }
         .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Palette.raised))
 
         VStack(alignment: .leading, spacing: 6) {
@@ -523,7 +538,7 @@ struct StatusPills: View {
                     let down = tracker.cloudRun.filter(\.isUnhealthy).count
                     pill(down > 0 ? Palette.red : Palette.green, down > 0 ? "Cloud Run · \(down) down" : "Cloud Run") { tracker.show(.cloud) }
                 }
-                if Gcp.bin != nil && !tracker.gcpProjects.isEmpty {
+                if Gcp.available && !tracker.gcpProjects.isEmpty {
                     pill(tracker.gcp.isLoggedOut ? Palette.red : tracker.gcp == .unknown ? Palette.faint : Palette.green,
                          tracker.gcp.isLoggedOut ? "GCP · log in" : "GCP") {
                         if tracker.gcp.isLoggedOut { tracker.loginGcp() } else { tracker.checkGcp() }
@@ -729,7 +744,7 @@ struct CloudRunSection: View {
                     .font(.system(size: 10)).foregroundStyle(down.isEmpty ? Palette.muted : Palette.redText)
             }
             if !tracker.closedSections.contains("cloudrun") {
-                if Gcp.bin == nil {
+                if !Gcp.available {
                     Text("Install the Google Cloud CLI (gcloud) to watch Cloud Run.").font(.system(size: 11)).foregroundStyle(Palette.muted)
                 } else if tracker.gcp.isLoggedOut {
                     Button("Log in to Google Cloud") { tracker.loginGcp() }.buttonStyle(.plain)
