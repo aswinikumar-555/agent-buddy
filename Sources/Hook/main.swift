@@ -143,6 +143,40 @@ if args.first == "say" {
     exit(0)
 }
 
+// `buddy todo "<text>"`: adds a to-do to the buddy's list (Me tab).
+if args.first == "todo" {
+    let text = args.dropFirst().joined(separator: " ")
+    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+        FileHandle.standardError.write("usage: buddy todo \"<text>\"\n".data(using: .utf8)!)
+        exit(1)
+    }
+    append(["hook_event_name": "Todo", "session_id": "", "message": truncate(text, 200),
+            "cwd": FileManager.default.currentDirectoryPath])
+    exit(0)
+}
+
+// Claude Code status line (`"statusLine": {"type": "command", "command": "~/.agent-buddy/buddy-hook statusline"}`):
+// Claude passes your plan's usage limits here. Saved for the buddy, and printed as the status line.
+if args.first == "statusline" {
+    let data = FileHandle.standardInput.readDataToEndOfFile()
+    let obj = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    let model = (obj["model"] as? [String: Any])?["display_name"] as? String ?? ""
+    var parts = model.isEmpty ? [] : [model]
+    if let limits = obj["rate_limits"] as? [String: Any], !limits.isEmpty {
+        let usage: [String: Any] = ["rate_limits": limits, "at": Date().timeIntervalSince1970]
+        if let out = try? JSONSerialization.data(withJSONObject: usage) {
+            try? out.write(to: URL(fileURLWithPath: dir + "/usage.json"), options: .atomic)
+        }
+        for (key, label) in [("five_hour", "5h"), ("seven_day", "week")] {
+            if let pct = (limits[key] as? [String: Any])?["used_percentage"] as? Double {
+                parts.append("\(label) \(Int(pct.rounded()))%")
+            }
+        }
+    }
+    print(parts.joined(separator: " · "))
+    exit(0)
+}
+
 let input = FileHandle.standardInput.readDataToEndOfFile()
 guard let obj = try? JSONSerialization.jsonObject(with: input) as? [String: Any] else { exit(0) }
 var event = obj["hook_event_name"] as? String ?? ""
