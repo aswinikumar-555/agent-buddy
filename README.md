@@ -1,5 +1,9 @@
 # Agent Buddy
 
+[![Build](https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml/badge.svg)](https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/aswinikumar-555/agent-buddy)](https://github.com/aswinikumar-555/agent-buddy/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **A 3D desktop buddy for your Mac that watches your AI coding agents, your deploys and your dev stack, and tells you when something needs you.**
 
 You start Claude Code or Codex on a few tasks, switch to something else, and lose track. Agent Buddy sits in the corner of your screen as a small 3D character (a cat, robot, rubber duck, owl or astronaut), keeps an eye on everything, and acts it out: it types while agents work, raises a paw when one needs you, and jumps when a task is done. Click it for the full picture.
@@ -8,11 +12,13 @@ Everything runs on your Mac. No account, no server, no tracking.
 
 <p align="center"><img src="docs/demo.gif" width="330" alt="Nori the cat on the desktop: it types while an agent works, raises a paw when one needs you, and jumps with confetti when the task is done, with a speech bubble for each"></p>
 
+**[Download the app](https://github.com/aswinikumar-555/agent-buddy/releases/latest)** (no developer tools needed), or build it yourself:
+
 ```bash
 git clone https://github.com/aswinikumar-555/agent-buddy.git ~/agent-buddy && cd ~/agent-buddy && bash install.sh
 ```
 
-That's the whole install ([details](#install-on-your-mac)). It builds on your Mac in about a minute.
+That's the whole install ([details](#install-on-your-mac)). Building takes about a minute.
 
 <p align="center">
   <img src="docs/panel-agents.png" width="270" alt="The Agents tab: a permission request with Allow and Deny, running agents, and what finished today">
@@ -33,13 +39,17 @@ That's the whole install ([details](#install-on-your-mac)). It builds on your Ma
 - **Remote mode:** approve permission prompts, answer an agent's questions, and reply when it finishes, all from the buddy. It can switch on by itself when you step away.
 - **Chat:** send a message to any agent from the buddy, whether it's working or idle.
 - **`buddy say "…"`:** any agent or script can put a message on your screen.
+- **Codex too:** its chat history, messages from the buddy (through `codex queue` when it's idle), and permission prompts answered from the buddy in remote mode.
+- **Background and cloud sessions:** Claude Code background agents (`claude --bg`), with an alert when one is blocked waiting for you, and cloud sessions working on `claude/…` branches, with an alert when they open a pull request.
 - Alerts when an agent has been waiting on you too long, seems stuck, or you're running too many at once.
 - **Claude plan usage:** how much of your 5-hour and weekly limits you've used, with a nudge at 80% and 95%.
 - Works with agents in any terminal, and with [herdr](https://herdr.dev) panes.
 
 **Your code and cloud**
-- **Pull requests:** CI failing, ready to merge, merged, review requested. For a failing PR it shows the first CI error and the local agent working on that branch, with one click to send it the failure.
-- **GitHub deploys:** started, succeeded, failed.
+- **GitHub and GitLab:** everything below works with GitHub (through `gh`) and GitLab, including self-hosted (through `glab`).
+- **Pull requests / merge requests:** CI failing, ready to merge, merged, review requested. For a failing PR it shows the first CI error and the local agent working on that branch, with one click to send it the failure.
+- **Deploys:** GitHub Actions deploy workflows and GitLab deployments: started, succeeded, failed.
+- **Jira:** tickets assigned to you, with an alert when you get a new one or one moves.
 - **Local dev stack:** a light per service, alerts when one crashes, and new errors from its logs (with "ask an agent to fix").
 - **AWS:** whether your CLI login is still valid, and ECS service health (with why a service is down).
 - **Google Cloud:** whether your `gcloud` login is still valid, and Cloud Run service health (with why a service isn't ready).
@@ -53,12 +63,17 @@ That's the whole install ([details](#install-on-your-mac)). It builds on your Ma
 - Work hours: outside them, work alerts go quiet.
 - **Meetings:** a heads-up 5 minutes before each meeting in your Calendar app, with a **Join** button for Zoom, Meet or Teams links. Reminders stay quiet during meetings.
 - **To-do list:** add, tick off and clear to-dos in the panel. Agents can add to it with `buddy todo "…"`.
+- **Quick capture:** press **⌥Space** anywhere, type, press Return: it's on your to-do list. Start with `@project` to send it to that project's agent instead.
 - **Timesheet:** your time per project each day (the project you last gave an agent a prompt, plus meetings), for today or the week, copied as spreadsheet rows.
 - **Festivals:** the buddy dresses up on Diwali, Holi, Halloween, Christmas, New Year and Independence Day. Add your own days in the config.
 - End of day: a summary of what got done, ready to paste into standup, plus a note for tomorrow.
 - Nap: hold every alert for a while.
 
+**The buddy itself:** now and then it does a little trick while idle (a spin, a stretch, a yawn, a wave, a hop), its eyes follow your mouse, and if you like it can stroll along the bottom of your screen (off by default).
+
 All alerts appear in the buddy's speech bubble. Mac notifications are off by default (turn them on in ⚙︎).
+
+**Everything can be turned off.** Don't use Jira, or don't want the buddy walking around? ⚙︎ → **Features** has a switch for each feature, and you can set defaults in the config (`"features": {"jira": false}`).
 
 ---
 
@@ -92,6 +107,17 @@ On a festival the buddy dresses up and says hello: diyas for **Diwali**, a Santa
 
 ## Install on your Mac
 
+### Option A: download the app
+
+1. Download **AgentBuddy-x.y.z.zip** from the [latest release](https://github.com/aswinikumar-555/agent-buddy/releases/latest) and unzip it.
+2. Move **AgentBuddy.app** into your Applications folder.
+3. Open it. It isn't notarized by Apple, so the first time macOS says it can't check it: open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** (or right-click the app → **Open**).
+4. The buddy asks to **connect to Claude Code and Codex**. Click **Connect**: it adds its hooks, the `buddy` command and the status line, and starts at login.
+
+Works on Apple silicon and Intel Macs with macOS 14 or later.
+
+### Option B: build it yourself
+
 ### 1. What you need
 
 | | |
@@ -99,7 +125,8 @@ On a festival the buddy dresses up and says hello: diyas for **Diwali**, a Santa
 | **macOS 14 (Sonoma) or later** | Apple silicon or Intel |
 | **Apple's command line tools** | Builds the app on your Mac. If you don't have them, run `xcode-select --install` |
 | **Claude Code and/or Codex** | The agents it watches |
-| *Optional:* [`gh`](https://cli.github.com) | For pull requests and deploys. Log in with `gh auth login` |
+| *Optional:* [`gh`](https://cli.github.com) | For GitHub pull requests and deploys. Log in with `gh auth login` |
+| *Optional:* [`glab`](https://gitlab.com/gitlab-org/cli) | For GitLab merge requests and deployments. Log in with `glab auth login` |
 | *Optional:* [`aws`](https://aws.amazon.com/cli/) | For the AWS login light and ECS health |
 | *Optional:* [`gcloud`](https://cloud.google.com/sdk/docs/install) | For the Google Cloud login light and Cloud Run health |
 | *Optional:* [`herdr`](https://herdr.dev) | To see agents in herdr panes and send them messages |
@@ -116,14 +143,16 @@ The installer:
 1. Checks the requirements above.
 2. Builds the app from source on your Mac (about a minute the first time). Nothing is downloaded.
 3. Installs it to `~/Applications/AgentBuddy.app` and starts it at login.
-4. Adds its hooks to Claude Code (`~/.claude/settings.json`) and Codex (`~/.codex/hooks.json`). Your existing hooks are kept, and a backup is saved next to each file (`.bak-agent-buddy`).
-5. Installs the `buddy` command, and adds a short note to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` telling agents when to use `buddy say`.
-6. Creates your config at `~/.agent-buddy/config.json` from `config.example.json`.
+4. Connects it (`AgentBuddy --setup`, the same step the downloaded app does when you click Connect):
+   - adds its hooks to Claude Code (`~/.claude/settings.json`) and Codex (`~/.codex/hooks.json`). Your existing hooks are kept, and a backup is saved next to each file (`.bak-agent-buddy`);
+   - sets Claude Code's status line to show your plan usage, unless you already have your own;
+   - installs the `buddy` command, and adds a short note to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` telling agents when to use `buddy say`;
+   - creates your config at `~/.agent-buddy/config.json` from `config.example.json`.
 
 ### 3. After installing
 
 - **Restart any open Claude Code or Codex sessions** so they pick up the hooks.
-- **Codex:** open Codex → Settings → **Hooks** → **Trust all**, or Codex won't run them.
+- **Codex:** the next time you start Codex it asks you to **Review hooks**: choose **Trust all and continue**, or Codex won't run them. (In the Codex app: Settings → Hooks → Trust all.)
 - **Edit `~/.agent-buddy/config.json`** to add your repos, sites and so on (see [Configuration](#configuration)), then restart the buddy: right-click it → ⚙︎ → Quit, then `open ~/Applications/AgentBuddy.app`.
 - macOS may ask once whether Agent Buddy may **control Terminal**. That's only used when you click "jump to agent" or send a message to an agent in a Terminal tab.
 
@@ -144,6 +173,10 @@ To update later: `cd ~/agent-buddy && git pull && bash install.sh`.
 | Add a to-do | Type it in **Me** → To-do, or run `buddy todo "Review #31"` |
 | Copy your timesheet | **Me** → Timesheet → Today or Week → Copy (pastes into a spreadsheet) |
 | Join your next meeting | Click the bubble or the meeting's status pill, or **Join** in **Me** → Meetings |
+| Jot something down from anywhere | **⌥Space**, type, Return (`@shop-web run the tests` sends it to that agent) |
+| Turn a feature on or off | ⚙︎ → **Features** |
+| Make the status area taller or shorter | **−** / **+** next to STATUS, or drag the little grip; click STATUS to collapse it |
+| Open a background agent | **Open** next to it in **Agents** → Background & cloud (runs `claude attach`) |
 | Light or dark panel, or another color scheme | ⚙︎ → Theme |
 | Answer agents from the buddy | Turn on **Remote** in the panel header |
 | Message an agent | Click the agent in the panel, type, send |
@@ -177,7 +210,7 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 
 | Setting | What it does | Default |
 |---|---|---|
-| `repos` | GitHub repos (`owner/name`) watched for deploys and your PRs | none |
+| `repos` | GitHub repos (`owner/name`) watched for deploys, your PRs, PR stats and `claude/` branches | none |
 | `deployWorkflowPattern` | Which GitHub Actions workflows count as deploys (regex) | `deploy\|promote\|rollback\|release` |
 | `workHours` | `start`, `end`, `days`. Outside them, work alerts are quiet | 09:30–20:00, Mon–Sat |
 | `breakMinutes` / `waterMinutes` | Break and water reminder intervals | 90 / 60 |
@@ -192,8 +225,23 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 | `sites` | Health checks: `{ "name", "url", "prod" }`. Any 2xx/3xx answer counts as up | none |
 | `prodEnvs` | Names that mean production (in cluster names, tunnels, stack envs) | `prod`, `production` |
 | `prodPatterns` | Regexes for shell commands that touch production (secret names, prod hosts, …) | a few generic ones |
+| `features` | Turn features on or off by default, e.g. `{ "jira": false, "walking": true }`. Names: `stuckAlerts`, `autoRemote`, `juggling`, `claudeUsage`, `backgroundAgents`, `cloudBranches`, `pullRequests`, `prStats`, `deploys`, `devStack`, `logErrors`, `housekeeping`, `jira`, `sites`, `aws`, `ecs`, `gcp`, `codexCloud`, `prodWarning`, `water`, `breaks`, `dailyReminders`, `endOfDay`, `meetings`, `todos`, `timesheet`, `festivals`, `quickCapture`, `idleTricks`, `eyesFollow`, `walking`. A switch you flip in ⚙︎ → Features wins | all on except `walking` |
+| `gitlab` | GitLab projects to watch, like `repos` for GitHub: `{ "projects": ["group/project"], "host": "gitlab.example.com" }` (leave out `host` for gitlab.com) | none |
+| `jira` | `{ "site": "yourteam.atlassian.net", "email": "you@example.com" }`, plus optional `jql` (default: your open tickets). See [Jira](#jira) for the token | none |
 | `meetings` / `meetingHeadsUpMinutes` | Meeting heads-up from the Calendar app, and how many minutes before | on / 5 |
 | `festivals` | Your own special days: `{ "date": "06-12", "name": "My birthday", "greeting": "🎂 Happy birthday!", "costume": "partyHat" }`. `date` is `MM-dd` (every year) or `yyyy-MM-dd`; `costume` is `partyHat`, `santaHat`, `witchHat`, `diya`, `holi` or `flag`; add `"days": 2` for longer ones | built-in festivals |
+
+### Jira
+
+Agent Buddy reads Jira with an API token, kept in your Mac's Keychain (never in the config file):
+
+1. Create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+2. Save it in the Keychain (use the same email as in the config):
+   ```bash
+   security add-generic-password -s agent-buddy-jira -a you@example.com -w
+   ```
+   (it asks for the token, so it doesn't end up in your shell history)
+3. Add `"jira": { "site": "yourteam.atlassian.net", "email": "you@example.com" }` to the config and restart the buddy.
 
 ### The local dev stack monitor
 
@@ -204,7 +252,7 @@ This watches projects that start their services with a `scripts/dev/ports.sh` po
 ## Privacy and what it touches
 
 - **Local only.** No server and no telemetry. Its data lives in `~/.agent-buddy/` (events, settings, notes, to-dos, daily summaries and timesheets). Your calendar is read on your Mac and never leaves it.
-- **Network calls happen only through tools you already use and only for features you configure:** `gh` (PRs, deploys, PR stats), `aws` (read-only: `sts get-caller-identity`, ECS describe and list calls), `gcloud` (read-only: `auth print-access-token`, `run services list`), `codex cloud list`, and plain GET requests to the `sites` you list.
+- **Network calls happen only through tools you already use and only for features you configure:** `gh` (PRs, deploys, PR stats, `claude/` branches), `glab` (the same for GitLab), Jira's REST API (your tickets, with your token from the Keychain), `aws` (read-only: `sts get-caller-identity`, ECS describe and list calls), `gcloud` (read-only: `auth print-access-token`, `run services list`), `codex cloud list`, and plain GET requests to the `sites` you list.
 - **It never deploys, scales, deletes or changes anything** in your cloud accounts or repos. The production warning only warns.
 - Files it changes outside its own folder: `~/.claude/settings.json` (hooks, and the status line if you don't have one), `~/.codex/hooks.json`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` (a marked section), the `buddy` command in `/opt/homebrew/bin` (or `~/.local/bin`), and a login item in `~/Library/LaunchAgents`. The uninstaller removes all of them.
 
@@ -212,11 +260,19 @@ This watches projects that start their services with a `scripts/dev/ports.sh` po
 
 ## Uninstall
 
+If you built it yourself:
+
 ```bash
 cd ~/agent-buddy && bash uninstall.sh
 ```
 
-This stops the app and removes it, its login item, its hooks, the `buddy` command, the `CLAUDE.md` / `AGENTS.md` section, and `~/.agent-buddy/`.
+If you downloaded the app: quit it (⚙︎ → Quit), then run this and drag the app to the Trash:
+
+```bash
+/Applications/AgentBuddy.app/Contents/MacOS/AgentBuddy --uninstall && rm -rf ~/.agent-buddy
+```
+
+Either way this removes its hooks and status line, the `buddy` command, the `CLAUDE.md` / `AGENTS.md` section, its login item, and `~/.agent-buddy/`.
 
 ---
 
@@ -227,7 +283,9 @@ This stops the app and removes it, its login item, its hooks, the `buddy` comman
 | `xcrun: error` or `swiftc` not found during install | Run `xcode-select --install`, then `bash install.sh` again |
 | The buddy doesn't appear | `open ~/Applications/AgentBuddy.app`. If it's off-screen after unplugging a display, it moves back on its own at the next start |
 | Agents don't show up | Restart the agent sessions after installing. For Codex, trust the hooks (Settings → Hooks → Trust all) |
-| No PRs or deploys | Install `gh`, run `gh auth login`, and list your repos in `repos` |
+| No PRs or deploys | Install `gh` (or `glab` for GitLab), log in (`gh auth login` / `glab auth login`), and list your repos in `repos` (or `gitlab.projects`) |
+| Downloaded app won't open | It isn't notarized: System Settings → Privacy & Security → **Open Anyway** |
+| Jira says "not connected" | Check the token is in the Keychain under `agent-buddy-jira` with the same email as the config (see [Jira](#jira)) |
 | AWS light is grey | `aws` isn't installed or you're offline. Red means run `aws login` (or click the light) |
 | GCP light is red | Your `gcloud` login expired: click it to run `gcloud auth login` |
 | Settings didn't change | Restart the buddy after editing the config. A bubble at start-up tells you if the file has an error |
@@ -237,9 +295,11 @@ This stops the app and removes it, its login item, its hooks, the `buddy` comman
 ## Building by hand
 
 ```bash
-swiftc -O -swift-version 5 Sources/App/*.swift -o build/AgentBuddy
-swiftc -O -swift-version 5 Sources/Hook/main.swift -o build/buddy-hook
+bash scripts/build-app.sh          # → build/AgentBuddy.app, for this Mac
+bash scripts/release.sh            # → dist/AgentBuddy-<version>.zip, Apple silicon + Intel
 ```
+
+Every push and pull request is built on a Mac by GitHub Actions ([`.github/workflows/build.yml`](.github/workflows/build.yml)), so a change that doesn't compile shows a red ✗ before it's merged.
 
 The images in this README are drawn by the app itself from made-up sample data, so they always match the real UI. To redraw them after a change:
 

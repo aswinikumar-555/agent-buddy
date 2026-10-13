@@ -27,9 +27,10 @@ bash install.sh
 `install.sh` rebuilds everything and restarts the buddy, so run it after each change. To only check that it compiles:
 
 ```bash
-swiftc -O -swift-version 5 Sources/App/*.swift -o build/AgentBuddy
-swiftc -O -swift-version 5 Sources/Hook/main.swift -o build/buddy-hook
+bash scripts/build-app.sh
 ```
+
+Every pull request is also built on a Mac by GitHub Actions; you'll see a ✅ or ❌ on it.
 
 ### Where things are
 
@@ -43,6 +44,11 @@ swiftc -O -swift-version 5 Sources/Hook/main.swift -o build/buddy-hook
 | `Sources/App/Planner.swift`, `PlannerViews.swift` | To-dos, Claude plan usage, the timesheet and PR stats, and their panel cards |
 | `Sources/App/Meetings.swift` | Meetings from the Calendar app |
 | `Sources/App/Festivals.swift` | Festival dates (the costumes are drawn in `Buddy3D.swift`) |
+| `Sources/App/Features.swift` | The list of features you can turn on and off (⚙︎ → Features) |
+| `Sources/App/GitLab.swift`, `Jira.swift`, `CloudAgents.swift` | GitLab (glab), Jira, Claude background agents and `claude/` branches |
+| `Sources/App/QuickCapture.swift` | The ⌥Space quick capture window |
+| `Sources/App/Setup.swift` | Connecting to Claude Code and Codex (`--setup`, `--uninstall`, and the downloaded app's first launch) |
+| `scripts/build-app.sh`, `scripts/release.sh`, `VERSION` | Building the app bundle, and the downloadable zip for a release |
 | `Sources/App/DocsRenderer.swift` | Draws the README images |
 | `Sources/Hook/main.swift` | The small program Claude Code and Codex run for each hook event |
 
@@ -62,6 +68,8 @@ They're drawn from made-up sample data, so no personal information ends up in th
 - **Read-only in the cloud.** The buddy watches; it never deploys, scales, deletes or changes anything.
 - **Never block an agent.** The hook must always exit 0 and stay fast. Only Remote mode waits, and only when the user turned it on.
 - **Nothing company-specific.** Names of your repos, clusters, secrets or domains go in your own `~/.agent-buddy/config.json`, never in the code.
+- **Everything can be turned off.** A new feature gets an entry in `Features.swift`, so people can switch it off in ⚙︎ → Features.
+- **GitHub and GitLab.** Anything built on pull requests should work for both (`PRWatcher` / `GitLab`).
 - **Light on the battery.** Keep polling gentle and animations at a low frame rate when nothing is happening.
 - **Match the surrounding code:** small focused changes, plain names, short comments that explain why.
 
