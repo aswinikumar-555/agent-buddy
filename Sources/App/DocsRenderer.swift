@@ -78,7 +78,7 @@ enum DocsRenderer {
         tracker.panelWidth = 440
         for tab in PanelTab.allCases {
             tracker.panelTab = tab
-            tracker.panelHeight = tab == .me ? 1010 : tab == .code ? 640 : 430
+            tracker.panelHeight = tab == .me ? 1010 : tab == .code ? 820 : tab == .agents ? 600 : 430
             save(snapshot(TaskListView(tracker: tracker).padding(14)), "panel-\(tab.rawValue.lowercased()).png")
         }
         tracker.panelHeight = 430
@@ -125,6 +125,7 @@ enum DocsRenderer {
 
     static let sampleConfig = """
     {"repos": ["acme/shop-web"], "deployWorkflowPattern": "deploy", "pollSeconds": 45,
+     "jira": {"site": "acme.atlassian.net", "email": "you@example.com"},
      "workHours": {"start": "09:30", "end": "19:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"]},
      "gcpProjects": [{"project": "acme-analytics", "region": "us-central1"}],
      "dailyReminders": [
@@ -220,6 +221,23 @@ enum DocsRenderer {
                               end: now.addingTimeInterval(42 * 60), calendar: "Work", joinURL: URL(string: "https://meet.google.com/")),
                       Meeting(id: "m2", title: "Sprint planning", start: now.addingTimeInterval(95 * 60),
                               end: now.addingTimeInterval(155 * 60), calendar: "Work", joinURL: nil)]
+        t.backgroundAgents = [
+            BackgroundAgent(id: "b1", sessionId: "b1", name: "Upgrade the image uploader", cwd: "/tmp/shop-web",
+                            state: .waiting, waitingFor: "approve: npm install sharp"),
+            BackgroundAgent(id: "b2", sessionId: "b2", name: "Write tests for coupons", cwd: "/tmp/payments-api",
+                            state: .working, waitingFor: ""),
+        ]
+        t.cloudBranches = [CloudBranch(repo: "acme/shop-web", branch: "claude/fix-cart-badge", committed: now.addingTimeInterval(-240),
+                                       headline: "fix(cart): badge count after removing an item", prNumber: 488,
+                                       prTitle: "Fix the cart badge count", prState: "OPEN", url: nil)]
+        t.jiraIssues = [
+            JiraIssue(key: "SHOP-142", summary: "Checkout dark mode", status: "In Review", category: "indeterminate",
+                      priority: "High", updated: now, url: nil),
+            JiraIssue(key: "PAY-77", summary: "Retry failed webhooks", status: "In Progress", category: "indeterminate",
+                      priority: "Medium", updated: now, url: nil),
+            JiraIssue(key: "SHOP-150", summary: "Faster product search", status: "To Do", category: "new",
+                      priority: "Low", updated: now, url: nil),
+        ]
         t.prStats = PRStats(me: "alex", merged: 6, opened: 7, reviewed: 9, mergeHours: 19,
                             board: [.init(login: "maya", merged: 9), .init(login: "alex", merged: 6), .init(login: "sam", merged: 5),
                                     .init(login: "lee", merged: 3), .init(login: "ari", merged: 2)], at: now)

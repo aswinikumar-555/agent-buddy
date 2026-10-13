@@ -59,6 +59,11 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
     private let costumeHat = SCNNode()
     private let costumeFloor = SCNNode()
     private var costumeMotion: ((CGFloat) -> Void)?
+    /// Idle tricks on, where the mouse is (-1…1 each way; nil = not following), and walking (-1 left, 1 right).
+    private var tricks = false
+    private var gaze: CGPoint?
+    private var smoothGaze = CGPoint.zero
+    private var walking: CGFloat = 0
 
     init(character: BuddyCharacterKind) {
         super.init()
@@ -82,6 +87,20 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
     func snapColor() {
         lock.lock()
         current = target
+        lock.unlock()
+    }
+
+    func set(tricks: Bool, gaze: CGPoint?, walking: CGFloat) {
+        lock.lock()
+        self.tricks = tricks
+        self.gaze = gaze
+        self.walking = walking
+        lock.unlock()
+    }
+
+    func set(gaze: CGPoint?) {
+        lock.lock()
+        self.gaze = gaze
         lock.unlock()
     }
 
@@ -376,6 +395,30 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             self.rig.position = SCNVector3(p.x, p.y + 0.18 + sin(t * (mood == .working ? 3 : 1.2)) * 0.08, p.z)
             let e = self.rig.eulerAngles
             self.rig.eulerAngles = SCNVector3(e.x, e.y, e.z + sin(t * 0.9) * 0.07)
+        }
+    }
+
+    // MARK: Following the mouse (main thread)
+
+    private var gazeTimer: Timer?
+    private(set) var lastGaze: CGPoint?
+
+    /// While on, reads the mouse 15 times a second and turns the head toward it.
+    func followMouse(in view: NSView, _ on: Bool) {
+        guard on != (gazeTimer != nil) else { return }
+        gazeTimer?.invalidate()
+        gazeTimer = nil
+        lastGaze = nil
+        set(gaze: nil)
+        guard on else { return }
+        gazeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self, weak view] _ in
+            guard let self, let view, let window = view.window else { return }
+            let frame = window.convertToScreen(view.convert(view.bounds, to: nil))
+            let m = NSEvent.mouseLocation
+            let dx = (m.x - frame.midX) / 500, dy = (m.y - (frame.minY + frame.height * 0.72)) / 380
+            let g = CGPoint(x: max(-1, min(1, dx)), y: max(-1, min(1, dy)))
+            self.lastGaze = g
+            self.set(gaze: g)
         }
     }
 
@@ -745,6 +788,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         let mood = self.mood
         let activity = self.activity
         let target = self.target
+        let tricks = self.tricks, gaze = self.gaze, walking = self.walking
         lock.unlock()
 
         let k: CGFloat = 0.08
@@ -789,8 +833,47 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             headPitch = -0.2
         }
 
-        // Acting out a situation overrides the mood pose.
         var eyesClosed = false, happyOverride: Bool?
+
+        // Idle: walk along the screen, or now and then do a little trick.
+        if mood == .idle && activity == nil {
+            if walking != 0 {
+                let step = sin(t * 9)
+                y = abs(step) * 0.06
+                yaw = walking * 1.15
+                roll = step * 0.04
+                fwdL = step * 0.7; fwdR = -step * 0.7
+                outL = 0.2; outR = 0.2
+                headYaw = 0; headPitch = 0.05
+            } else if tricks {
+                let period: CGFloat = 26
+                let cycle = t.truncatingRemainder(dividingBy: period)
+                if cycle < 3 {
+                    let p = cycle / 3, bump = sin(p * .pi)
+                    switch Int(t / period) % 5 {
+                    case 0: yaw = (1 - cos(p * .pi)) * .pi                       // spin round (chasing its tail)
+                    case 1: outL = 2.7 * bump; outR = outL                        // big stretch
+                        scale = SCNVector3(1, 1 + 0.05 * bump, 1); happyOverride = true
+                    case 2: headPitch = -0.35 * bump; eyesClosed = p > 0.25 && p < 0.8  // yawn
+                    case 3: outR = (2.3 + sin(t * 12) * 0.25) * bump              // wave
+                    default: y = abs(sin(p * 2 * .pi)) * 0.25                      // two little hops
+                    }
+                }
+            }
+        }
+
+        // Look toward the mouse.
+        if let g = gaze, activity == nil, mood != .celebrating, walking == 0 {
+            smoothGaze.x += (g.x - smoothGaze.x) * 0.12
+            smoothGaze.y += (g.y - smoothGaze.y) * 0.12
+            headYaw = headYaw * 0.4 + smoothGaze.x * 0.55
+            headPitch -= smoothGaze.y * 0.3
+        } else {
+            smoothGaze.x *= 0.9; smoothGaze.y *= 0.9
+        }
+        eyes.position = SCNVector3(smoothGaze.x * 0.05, smoothGaze.y * 0.035, 0)
+
+        // Acting out a situation overrides the mood pose.
         switch activity {
         case .eat?:
             // Paws up to the mouth, head dipping to chew.
@@ -854,6 +937,9 @@ struct Buddy3DView: NSViewRepresentable {
     let mood: Mood
     var activity: BuddyActivity? = nil
     var costume: Costume? = nil
+    var tricks = false
+    var eyesFollow = false
+    var walking: CGFloat = 0
 
     func makeCoordinator() -> Buddy3DScene { Buddy3DScene(character: character) }
 
@@ -869,12 +955,16 @@ struct Buddy3DView: NSViewRepresentable {
         view.preferredFramesPerSecond = 30
         context.coordinator.set(mood: mood, activity: activity)
         context.coordinator.set(costume: costume)
+        context.coordinator.set(tricks: tricks, gaze: nil, walking: walking)
+        context.coordinator.followMouse(in: view, eyesFollow)
         return view
     }
 
     func updateNSView(_ view: SCNView, context: Context) {
         context.coordinator.set(mood: mood, activity: activity)
         context.coordinator.set(costume: costume)
+        context.coordinator.set(tricks: tricks, gaze: context.coordinator.lastGaze, walking: walking)
+        context.coordinator.followMouse(in: view, eyesFollow)
         // Calm moods don't need full frame rate; saves battery.
         view.preferredFramesPerSecond = mood == .idle ? 20 : 30
     }

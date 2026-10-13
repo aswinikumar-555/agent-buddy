@@ -81,6 +81,9 @@ struct BuddyConfig: Codable {
     var meetings: Bool?             // meeting heads-up from the Calendar app (default true)
     var meetingHeadsUpMinutes: Double?  // how long before a meeting to warn you (default 5)
     var festivals: [Festival]?      // your own festivals and special days (added to the built-in ones)
+    var features: [String: Bool]?   // turn features on or off: {"jira": false, "walking": true}
+    var jira: JiraConfig?           // Jira site and email (the API token lives in your Keychain)
+    var gitlab: GitLabConfig?       // GitLab projects (and host, if self-hosted), through the glab CLI
 
     static var url = buddyDir.appendingPathComponent("config.json")
     static let defaults = BuddyConfig(

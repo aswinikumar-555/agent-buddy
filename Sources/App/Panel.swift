@@ -133,9 +133,9 @@ struct TaskListView: View {
                         case .agents: AgentsTab(tracker: tracker, now: ctx.date)
                         case .code: CodeTab(tracker: tracker, now: ctx.date)
                         case .cloud:
-                            SitesSection(tracker: tracker)
-                            CloudSection(tracker: tracker)
-                            if !tracker.gcpProjects.isEmpty { CloudRunSection(tracker: tracker) }
+                            if tracker.on(.sites) { SitesSection(tracker: tracker) }
+                            if tracker.on(.ecs) || tracker.on(.codexCloud) { CloudSection(tracker: tracker) }
+                            if tracker.on(.gcp) && !tracker.gcpProjects.isEmpty { CloudRunSection(tracker: tracker) }
                         case .me: MeTab(tracker: tracker, now: ctx.date)
                         }
                     }
@@ -183,8 +183,8 @@ struct TaskListView: View {
                     .help("Outside your work hours (\(tracker.workHours.start)–\(tracker.workHours.end)): work alerts are quiet")
             }
             Spacer(minLength: 4)
-            AwsPill(tracker: tracker).fixedSize()
-            if Gcp.available { GcpPill(tracker: tracker).fixedSize() }
+            if tracker.on(.aws) { AwsPill(tracker: tracker).fixedSize() }
+            if tracker.on(.gcp) && Gcp.available { GcpPill(tracker: tracker).fixedSize() }
             Button { tracker.autoRemoteOn = false; tracker.remoteMode.toggle() } label: {
                 Text(tracker.remoteMode ? "Remote on" : "Remote off")
                     .font(.system(size: 11, weight: .medium))
@@ -230,8 +230,15 @@ struct TaskListView: View {
             Button("Reset panel size") { tracker.resetPanelSize() }
             Divider()
             Button("Clear finished agents") { tracker.clearDone() }
-            Toggle("Water reminders (hourly)", isOn: $tracker.waterOn)
-            Toggle("Festival costumes", isOn: $tracker.festivalCostumes)
+            Menu("Features") {
+                ForEach(Feature.Group.allCases, id: \.self) { group in
+                    Section(group.rawValue) {
+                        ForEach(Feature.allCases.filter { $0.group == group }) { f in
+                            Toggle(f.title, isOn: Binding(get: { tracker.on(f) }, set: { tracker.setFeature(f, $0) }))
+                        }
+                    }
+                }
+            }
             Toggle("Also show Mac notifications", isOn: $tracker.macNotifications)
             Divider()
             if tracker.napping {
@@ -449,6 +456,10 @@ struct AgentsTab: View {
             }
         }
 
+        if !tracker.backgroundAgents.isEmpty || !tracker.cloudBranches.isEmpty {
+            BackgroundCloudSection(tracker: tracker, now: now)
+        }
+
         if !idle.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 Button { tracker.showIdle.toggle() } label: {
@@ -478,14 +489,16 @@ struct CodeTab: View {
     let now: Date
 
     var body: some View {
-        if !tracker.logErrors.isEmpty { LogErrorsSection(tracker: tracker) }
-        PRSection(tracker: tracker)
-        PRStatsSection(tracker: tracker)
-        if !tracker.stacks.isEmpty || !tracker.tunnels.isEmpty {
+        if tracker.on(.logErrors) && !tracker.logErrors.isEmpty { LogErrorsSection(tracker: tracker) }
+        if tracker.on(.pullRequests) { PRSection(tracker: tracker) }
+        if tracker.on(.jira) && tracker.jiraConfigured { JiraSection(tracker: tracker) }
+        if tracker.on(.prStats) { PRStatsSection(tracker: tracker) }
+        if tracker.on(.devStack) && (!tracker.stacks.isEmpty || !tracker.tunnels.isEmpty) {
             StackSection(tracker: tracker)
                 .padding(8)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
         }
+        if tracker.on(.deploys) {
         VStack(alignment: .leading, spacing: 6) {
             SectionHeader(tracker: tracker, key: "deploys", title: "Deploys") {
                 Text(tracker.deploys.isEmpty ? "none in 6 h" : "\(tracker.deploys.count) in 6 h")
@@ -497,7 +510,8 @@ struct CodeTab: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
-        if tracker.housekeeping.hasNews { HousekeepingSection(tracker: tracker) }
+        }
+        if tracker.on(.housekeeping) && tracker.housekeeping.hasNews { HousekeepingSection(tracker: tracker) }
     }
 }
 
@@ -513,17 +527,19 @@ struct MeTab: View {
             if tracker.waterDue { WaterCard(tracker: tracker) }
             if tracker.breakDue { BreakCard(tracker: tracker) }
         }
-        if tracker.calendarAccess != .unknown { MeetingsCard(tracker: tracker, now: now) }
-        TodoCard(tracker: tracker, draft: tracker.todoDraft)
-        UsageCard(tracker: tracker, now: now)
-        TimesheetCard(tracker: tracker, now: now)
+        if tracker.on(.meetings) && tracker.calendarAccess != .unknown { MeetingsCard(tracker: tracker, now: now) }
+        if tracker.on(.todos) { TodoCard(tracker: tracker, draft: tracker.todoDraft) }
+        if tracker.on(.claudeUsage) { UsageCard(tracker: tracker, now: now) }
+        if tracker.on(.timesheet) { TimesheetCard(tracker: tracker, now: now) }
         VStack(alignment: .leading, spacing: 10) {
             eyebrow("Today")
-            meRow("figure.walk", "Working for \(formatDuration(tracker.workedFor))",
-                  "Break nudge after \(Int(tracker.breakMinutes)) min")
+            if tracker.on(.breaks) {
+                meRow("figure.walk", "Working for \(formatDuration(tracker.workedFor))",
+                      "Break nudge after \(Int(tracker.breakMinutes)) min")
+            }
             meRow("drop", tracker.waterOn ? "Next water in \(formatDuration(max(0, tracker.nextWaterAt.timeIntervalSince(now))))" : "Water reminders are off",
                   "Every \(Int(tracker.waterMinutes)) min")
-            ForEach(tracker.dailyReminderList, id: \.time) { r in
+            ForEach(tracker.on(.dailyReminders) ? tracker.dailyReminderList : [], id: \.time) { r in
                 meRow("clock", "\(r.emoji ?? "⏰") \(r.title)", "Every day at \(r.time)")
             }
             meRow("sunset", "Work hours \(tracker.workHours.start)–\(tracker.workHours.end)",
@@ -596,15 +612,101 @@ struct StatusPills: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            eyebrow("Status").padding(.leading, 4)
+            statusHeader
+            if !tracker.statusCollapsed {
+                if tracker.statusHeight > 0 {
+                    ScrollView { flow }.frame(height: min(tracker.statusHeight, max(34, tracker.statusContentHeight)))
+                } else {
+                    flow
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, tracker.statusCollapsed ? 10 : 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Rectangle().fill(Palette.divider).frame(height: 1) }
+    }
+
+    /// "STATUS", a grip to drag it taller or shorter, − / +, and collapse.
+    private var statusHeader: some View {
+        HStack(spacing: 6) {
+            Button { tracker.toggleStatus() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: tracker.statusCollapsed ? "chevron.right" : "chevron.down").font(.system(size: 8, weight: .bold))
+                    eyebrow("Status")
+                }
+                .foregroundStyle(Palette.muted)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(tracker.statusCollapsed ? "Show the status pills" : "Hide the status pills")
+            if tracker.statusCollapsed { collapsedSummary }
+            Spacer()
+            if !tracker.statusCollapsed {
+                Capsule().fill(Palette.faint.opacity(0.5)).frame(width: 34, height: 4)
+                    .padding(.vertical, 6).padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { _ in tracker.dragStatusHeight() }
+                        .onEnded { _ in tracker.endStatusDrag() })
+                    .help("Drag up or down to make the status area taller or shorter")
+                Spacer()
+                sizeButton("minus", "Shorter") { tracker.stepStatusHeight(-1) }
+                    .disabled(tracker.statusHeight > 0 && tracker.statusHeight <= 34)
+                sizeButton("plus", "Taller") { tracker.stepStatusHeight(1) }
+                    .disabled(tracker.statusHeight == 0)
+            }
+        }
+        .padding(.leading, 4)
+    }
+
+    private func sizeButton(_ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { action() } }) {
+            Image(systemName: icon).font(.system(size: 9, weight: .bold)).foregroundStyle(Palette.muted)
+                .frame(width: 20, height: 18)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Palette.pill))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// While collapsed: just how many lights are red and orange.
+    private var collapsedSummary: some View {
+        HStack(spacing: 8) {
+            let (red, orange) = tracker.statusCounts
+            if red > 0 { dot(Palette.red, red) }
+            if orange > 0 { dot(Palette.orange, orange) }
+            if red == 0 && orange == 0 { dot(Palette.green, nil) }
+        }
+    }
+
+    private func dot(_ color: Color, _ n: Int?) -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            if let n { Text("\(n)").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.muted) }
+        }
+    }
+
+    private var flow: some View {
             FlowLayout(spacing: 6) {
-                if !tracker.stacks.isEmpty {
+                if tracker.on(.devStack) && !tracker.stacks.isEmpty {
                     let down = tracker.stacks.reduce(0) { $0 + $1.downCount }
                     pill(down > 0 ? Palette.red : Palette.green, down > 0 ? "Local stack · \(down) down" : "Local stack") { tracker.show(.code) }
                 }
-                let failing = tracker.prs.filter { $0.checks == .failing }.count
-                pill(failing > 0 ? Palette.red : Palette.green,
-                     failing > 0 ? "PRs · \(failing) failing" : "PRs · \(tracker.prs.count) open") { tracker.show(.code) }
+                if tracker.on(.pullRequests) {
+                    let failing = tracker.prs.filter { $0.checks == .failing }.count
+                    pill(failing > 0 ? Palette.red : Palette.green,
+                         failing > 0 ? "PRs · \(failing) failing" : "PRs · \(tracker.prs.count) open") { tracker.show(.code) }
+                }
+                if tracker.on(.jira) && tracker.jiraConfigured {
+                    pill(tracker.jiraProblem != nil ? Palette.faint : Palette.blue, "Jira · \(tracker.jiraIssues.count)") { tracker.show(.code) }
+                }
+                let bgWaiting = tracker.backgroundAgents.filter { $0.state == .waiting }.count
+                if bgWaiting > 0 {
+                    pill(Palette.red, "Background · \(bgWaiting) waiting") { tracker.show(.agents) }
+                }
                 if !tracker.sites.isEmpty {
                     let down = tracker.sites.filter { $0.failures >= 2 }.count
                     pill(down > 0 ? Palette.red : Palette.green, down > 0 ? "Sites · \(down) down" : "Sites") { tracker.show(.cloud) }
@@ -613,11 +715,11 @@ struct StatusPills: View {
                     let down = tracker.ecs.filter(\.isUnhealthy).count
                     pill(down > 0 ? Palette.red : Palette.green, down > 0 ? "ECS · \(down) down" : "ECS") { tracker.show(.cloud) }
                 }
-                if !tracker.gcpProjects.isEmpty {
+                if tracker.on(.gcp) && !tracker.gcpProjects.isEmpty {
                     let down = tracker.cloudRun.filter(\.isUnhealthy).count
                     pill(down > 0 ? Palette.red : Palette.green, down > 0 ? "Cloud Run · \(down) down" : "Cloud Run") { tracker.show(.cloud) }
                 }
-                if Gcp.available && !tracker.gcpProjects.isEmpty {
+                if tracker.on(.gcp) && Gcp.available && !tracker.gcpProjects.isEmpty {
                     pill(tracker.gcp.isLoggedOut ? Palette.red : tracker.gcp == .unknown ? Palette.faint : Palette.green,
                          tracker.gcp.isLoggedOut ? "GCP · log in" : "GCP") {
                         if tracker.gcp.isLoggedOut { tracker.loginGcp() } else { tracker.checkGcp() }
@@ -626,37 +728,40 @@ struct StatusPills: View {
                 if let u = tracker.usage, let pct = [u.fiveHour?.percent, u.week?.percent].compactMap({ $0 }).max() {
                     pill(UsageCard.color(pct), "Claude · \(Int(pct.rounded()))% used") { tracker.show(.me) }
                 }
-                if let m = tracker.meetings.first(where: { $0.isNow(Date()) || $0.start.timeIntervalSinceNow < 1800 }) {
+                if tracker.on(.meetings), let m = tracker.meetings.first(where: { $0.isNow(Date()) || $0.start.timeIntervalSinceNow < 1800 }) {
                     pill(m.isNow(Date()) ? Palette.red : Palette.orange,
                          m.isNow(Date()) ? "In: \(oneLine(m.title, max: 24))" : "\(oneLine(m.title, max: 24)) in \(max(1, Int(m.start.timeIntervalSinceNow / 60))) min") {
                         if m.joinURL != nil { tracker.joinMeeting(m) } else { tracker.show(.me) }
                     }
                 }
-                let openTodos = tracker.todos.filter { $0.done == nil }.count
+                let openTodos = tracker.on(.todos) ? tracker.todos.filter { $0.done == nil }.count : 0
                 if openTodos > 0 {
                     pill(Palette.blue, "To-do · \(openTodos)") { tracker.show(.me) }
                 }
-                pill(tracker.aws.isLoggedOut ? Palette.red : tracker.aws == .unknown ? Palette.faint : Palette.green,
-                     tracker.aws.isLoggedOut ? "AWS · log in" : "AWS") {
-                    if tracker.aws.isLoggedOut { tracker.loginAws() } else { tracker.checkAws() }
+                if tracker.on(.aws) {
+                    pill(tracker.aws.isLoggedOut ? Palette.red : tracker.aws == .unknown ? Palette.faint : Palette.green,
+                         tracker.aws.isLoggedOut ? "AWS · log in" : "AWS") {
+                        if tracker.aws.isLoggedOut { tracker.loginAws() } else { tracker.checkAws() }
+                    }
                 }
-                let activeDeploys = tracker.deploys.filter(\.isActive).count
-                let failedDeploy = tracker.deploys.contains { !$0.isActive && !["success", "cancelled", "skipped"].contains($0.conclusion) }
-                pill(failedDeploy ? Palette.red : activeDeploys > 0 ? Palette.orange : Palette.green,
-                     activeDeploys > 0 ? "Deploys · \(activeDeploys) running" : "Deploys") { tracker.show(.code) }
+                if tracker.on(.deploys) {
+                    let activeDeploys = tracker.deploys.filter(\.isActive).count
+                    let failedDeploy = tracker.deploys.contains { !$0.isActive && !["success", "cancelled", "skipped"].contains($0.conclusion) }
+                    pill(failedDeploy ? Palette.red : activeDeploys > 0 ? Palette.orange : Palette.green,
+                         activeDeploys > 0 ? "Deploys · \(activeDeploys) running" : "Deploys") { tracker.show(.code) }
+                }
                 let h = tracker.housekeeping
-                if h.freeGB > 0 {
+                if tracker.on(.housekeeping) && h.freeGB > 0 {
                     let bigLog = h.bigLogs.first.map { " · \($0.detail) log" } ?? ""
                     pill(h.lowDisk ? Palette.red : h.hasNews ? Palette.orange : Palette.green,
                          h.lowDisk ? String(format: "Disk · %.0f GB free", h.freeGB) : "Disk" + bigLog) { tracker.show(.code) }
                 }
             }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.divider).frame(height: 1) }
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { tracker.statusContentHeight = g.size.height }
+                    .onChange(of: g.size.height) { _, h in tracker.statusContentHeight = h }
+            })
     }
 
     private func pill(_ color: Color, _ text: String, action: @escaping () -> Void) -> some View {

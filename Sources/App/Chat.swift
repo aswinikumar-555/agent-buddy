@@ -81,6 +81,7 @@ struct TerminalTarget: Equatable {
 /// Reads the last part of a Claude Code transcript and returns the visible
 /// conversation: user prompts and assistant text (no tool calls, no subagents).
 func loadTranscript(_ path: String, limit: Int = 40) -> [ChatItem] {
+    if path.contains("/.codex/") { return loadCodexTranscript(path, limit: limit) }
     guard let fh = FileHandle(forReadingAtPath: path) else { return [] }
     defer { try? fh.close() }
     let size = (try? fh.seekToEnd()) ?? 0
@@ -110,6 +111,35 @@ func loadTranscript(_ path: String, limit: Int = 40) -> [ChatItem] {
         let date = (e["timestamp"] as? String).flatMap { iso.date(from: $0) } ?? Date.distantPast
         items.append(ChatItem(id: (e["uuid"] as? String) ?? "\(n)", fromUser: type == "user",
                               text: body.count > 2500 ? String(body.prefix(2500)) + "…" : body, date: date))
+    }
+    return Array(items.suffix(limit))
+}
+
+/// A Codex session file (~/.codex/sessions/…/rollout-….jsonl): your prompts and Codex's replies.
+func loadCodexTranscript(_ path: String, limit: Int = 40) -> [ChatItem] {
+    guard let fh = FileHandle(forReadingAtPath: path) else { return [] }
+    defer { try? fh.close() }
+    let size = (try? fh.seekToEnd()) ?? 0
+    let window: UInt64 = 1_500_000
+    try? fh.seek(toOffset: size > window ? size - window : 0)
+    guard let data = try? fh.readToEnd(), let text = String(data: data, encoding: .utf8) else { return [] }
+
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var items: [ChatItem] = []
+    for (n, line) in text.split(separator: "\n").enumerated() {
+        guard let e = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              e["type"] as? String == "response_item",
+              let p = e["payload"] as? [String: Any], p["type"] as? String == "message",
+              let role = p["role"] as? String, role == "user" || role == "assistant" else { continue }
+        let parts = p["content"] as? [[String: Any]] ?? []
+        var body = parts.compactMap { ["input_text", "output_text", "text"].contains($0["type"] as? String ?? "") ? $0["text"] as? String : nil }
+            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Skip the instructions and environment Codex adds as "user" messages.
+        if body.isEmpty || body.hasPrefix("<") || body.hasPrefix("# AGENTS.md") || body.contains("(via Agent Buddy)") { continue }
+        if body.count > 2500 { body = String(body.prefix(2500)) + "…" }
+        let date = (e["timestamp"] as? String).flatMap { iso.date(from: $0) } ?? Date.distantPast
+        items.append(ChatItem(id: "\(n)", fromUser: role == "user", text: body, date: date))
     }
     return Array(items.suffix(limit))
 }

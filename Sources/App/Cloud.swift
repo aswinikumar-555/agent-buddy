@@ -139,6 +139,15 @@ enum CodexCloud {
 
     static let bin = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
+    /// Queues a message for an existing Codex session (`codex queue`). nil = done, else why not.
+    static func queue(thread: String, message: String) -> String? {
+        guard let bin else { return "Codex isn't installed" }
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        let (st, out) = runProcess(bin, ["queue", "--thread", thread, "--message", message], env: env)
+        return st == 0 ? nil : oneLine(out, max: 100)
+    }
+
     static func poll() -> Result {
         guard let bin else { return .unavailable("Codex isn't installed") }
         var env = ProcessInfo.processInfo.environment

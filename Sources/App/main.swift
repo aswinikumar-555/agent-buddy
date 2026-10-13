@@ -27,8 +27,8 @@ struct AgentTask: Identifiable {
 
     /// Seen only through herdr (no Claude Code hooks), e.g. Codex.
     var isHerdrOnly: Bool { id.hasPrefix("herdr:") }
-    /// Chat shows its live screen (no readable transcript): herdr-only and Codex.
-    var usesScreen: Bool { isHerdrOnly || kind == "codex" }
+    /// Chat shows its live screen (no readable transcript): herdr-only, and Codex without its session file.
+    var usesScreen: Bool { isHerdrOnly || (kind == "codex" && transcript == nil) }
 }
 
 enum Mood { case idle, working, waiting, celebrating, stretching }
@@ -189,12 +189,9 @@ final class Tracker: ObservableObject {
 
     // Water reminders
     @Published var waterDue = false
-    @Published var waterOn = UserDefaults.standard.object(forKey: "waterReminders") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(waterOn, forKey: "waterReminders")
-            nextWater = Date().addingTimeInterval(waterInterval)
-            if !waterOn { waterDue = false }
-        }
+    var waterOn: Bool {
+        get { on(.water) }
+        set { setFeature(.water, newValue) }
     }
     private lazy var nextWater = Date().addingTimeInterval(waterInterval)
     private var waterInterval: TimeInterval { (config.waterMinutes ?? 60) * 60 }
@@ -214,7 +211,7 @@ final class Tracker: ObservableObject {
         for c in prodCommands { r.append(c.text) }
         return r
     }
-    var prodActive: Bool { !prodReasons.isEmpty }
+    var prodActive: Bool { on(.prodWarning) && !prodReasons.isEmpty }
 
     // Errors from local dev logs
     @Published var logErrors: [LogError] = []
@@ -303,6 +300,50 @@ final class Tracker: ObservableObject {
 
     func endResize() { resizeStart = nil }
 
+    // Status pills area: collapsed, or a height you picked (0 = tall enough for every pill).
+    @Published var statusCollapsed = UserDefaults.standard.bool(forKey: "statusCollapsed") {
+        didSet { UserDefaults.standard.set(statusCollapsed, forKey: "statusCollapsed") }
+    }
+    @Published var statusHeight = UserDefaults.standard.object(forKey: "statusHeight") as? CGFloat ?? 0 {
+        didSet { UserDefaults.standard.set(statusHeight, forKey: "statusHeight") }
+    }
+    var statusContentHeight: CGFloat = 0
+    private var statusDragStart: (mouse: CGFloat, height: CGFloat)?
+    private let statusRow: CGFloat = 34
+
+    func toggleStatus() { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { statusCollapsed.toggle() } }
+
+    /// One row of pills shorter (-1) or taller (+1).
+    func stepStatusHeight(_ rows: Int) {
+        let current = statusHeight > 0 ? statusHeight : statusContentHeight
+        let new = ((current / statusRow).rounded() + CGFloat(rows)) * statusRow
+        statusHeight = new >= statusContentHeight - 2 ? 0 : max(statusRow, new)
+    }
+
+    /// Dragging the grip: up makes it taller (the panel grows upward).
+    func dragStatusHeight() {
+        let y = NSEvent.mouseLocation.y
+        if statusDragStart == nil { statusDragStart = (y, statusHeight > 0 ? statusHeight : statusContentHeight) }
+        guard let s = statusDragStart else { return }
+        let h = s.height + (y - s.mouse)
+        statusHeight = h >= statusContentHeight - 2 ? 0 : max(statusRow, h.rounded())
+    }
+
+    func endStatusDrag() { statusDragStart = nil }
+
+    /// Red and orange lights, for the collapsed status line.
+    var statusCounts: (red: Int, orange: Int) {
+        var red = stacks.reduce(0) { $0 + $1.downCount } + prs.filter { $0.checks == .failing }.count
+            + sites.filter { $0.failures >= 2 }.count + ecs.filter(\.isUnhealthy).count + cloudRun.filter(\.isUnhealthy).count
+            + (aws.isLoggedOut ? 1 : 0) + backgroundAgents.filter { $0.state == .waiting }.count
+        var orange = deploys.filter(\.isActive).count
+        if housekeeping.lowDisk { red += 1 } else if housekeeping.hasNews { orange += 1 }
+        if let u = usage, let p = [u.fiveHour?.percent, u.week?.percent].compactMap({ $0 }).max() {
+            if p >= 95 { red += 1 } else if p >= 80 { orange += 1 }
+        }
+        return (red, orange)
+    }
+
     func resetPanelSize() {
         withAnimation(.spring) { panelWidth = Tracker.defaultPanelWidth; panelHeight = Tracker.defaultPanelHeight }
     }
@@ -354,6 +395,27 @@ final class Tracker: ObservableObject {
     private var prStatsPolling = false
     private var lastPRStats = Date.distantPast
 
+    // Claude background agents and cloud sessions (claude/ branches)
+    @Published var backgroundAgents: [BackgroundAgent] = []
+    @Published var cloudBranches: [CloudBranch] = []
+    private var cloudAgentsPolling = false
+    private var lastCloudAgentsPoll = Date.distantPast
+    private var lastBranchPoll = Date.distantPast
+    private var cloudAgentsSeeded = false
+    private var branchesSeeded = false
+
+    // GitLab deployments (GitHub's are polled by DeployWatcher)
+    private var gitlabDeploysPolling = false
+    private var lastGitlabDeploys = Date.distantPast
+
+    // Jira
+    @Published var jiraIssues: [JiraIssue] = []
+    @Published var jiraProblem: String?
+    var jiraConfigured: Bool { config.jira != nil }
+    private var jiraPolling = false
+    private var lastJiraPoll = Date.distantPast
+    private var jiraSeeded = false
+
     // To-do list
     @Published var todos = Todos.load()
     let todoDraft = CardDraft()
@@ -374,11 +436,43 @@ final class Tracker: ObservableObject {
     private var focus: (project: String, at: Date)?
     @Published var timesheetWeek = false
 
+    // Walking along the screen
+    @Published var walkDirection: CGFloat = 0
+    weak var mover: WindowMover?
+    private var walkTimer: Timer?
+    private var nextWalk = Date().addingTimeInterval(90)
+
     // Festivals: the buddy dresses up
     @Published var festival: Festival?
-    @Published var festivalCostumes = UserDefaults.standard.object(forKey: "festivalCostumes") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(festivalCostumes, forKey: "festivalCostumes"); checkFestival(Date()) }
+    var festivalCostumes: Bool {
+        get { on(.festivals) }
+        set { setFeature(.festivals, newValue) }
     }
+
+    // Features you can turn off (⚙︎ → Features, or "features" in the config)
+    @Published private var featureChanges = 0
+    func on(_ f: Feature) -> Bool { _ = featureChanges; return f.isOn }
+
+    func setFeature(_ f: Feature, _ value: Bool) {
+        UserDefaults.standard.set(value, forKey: f.defaultsKey)
+        featureChanges += 1
+        switch f {
+        case .water:
+            nextWater = Date().addingTimeInterval(waterInterval)
+            if !value { waterDue = false }
+        case .breaks: if !value { breakDue = false }
+        case .festivals: checkFestival(Date())
+        case .quickCapture: QuickCapture.shared.enabled = value
+        case .prodWarning: if !value { prodCommands = [] }
+        case .devStack: if !value { stacks = []; tunnels = [] }
+        case .logErrors: if !value { logErrors = [] }
+        case .meetings:
+            if value { requestCalendar() } else { meetings = [] }
+        default: break
+        }
+        lastFeatureCheck = .distantPast
+    }
+    private var lastFeatureCheck = Date.distantPast
 
     // Disk, huge logs, stale worktrees (every 10 min)
     @Published var housekeeping = Housekeeping()
@@ -459,6 +553,7 @@ final class Tracker: ObservableObject {
             + stacks.reduce(0) { $0 + $1.downCount }
             + (aws.isLoggedOut ? 1 : 0)
             + (gcp.isLoggedOut && !gcpProjects.isEmpty ? 1 : 0)
+            + backgroundAgents.filter { $0.state == .waiting }.count
     }
 
     func resize(by step: Double) {
@@ -467,6 +562,8 @@ final class Tracker: ObservableObject {
 
     func start() {
         if let envs = config.prodEnvs, !envs.isEmpty { ProdGuard.prodEnvs = Set(envs.map { $0.lowercased() }) }
+        Feature.configured = config.features ?? [:]
+        if config.meetings == false { Feature.configured["meetings"] = Feature.configured["meetings"] ?? false }
         watchAppearance()
         try? FileManager.default.createDirectory(at: buddyDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: repliesDir, withIntermediateDirectories: true)
@@ -491,13 +588,17 @@ final class Tracker: ObservableObject {
         watcher.onUpdate = { [weak self] repo, runs in self?.mergeDeploys(repo: repo, runs: runs) }
         watcher.start()
         deployWatcher = watcher
-        if config.meetings ?? true {
-            meetingWatcher.requestAccess { [weak self] access in
-                self?.calendarAccess = access
-                self?.lastMeetingPoll = .distantPast
-            }
-        }
+        if on(.meetings) { requestCalendar() }
         checkFestival(Date())
+        QuickCapture.shared.onCapture = { [weak self] text in self?.capture(text) }
+        QuickCapture.shared.enabled = on(.quickCapture)
+    }
+
+    private func requestCalendar() {
+        meetingWatcher.requestAccess { [weak self] access in
+            self?.calendarAccess = access
+            self?.lastMeetingPoll = .distantPast
+        }
     }
 
     // herdr-only agents stay listed while their pane exists.
@@ -539,22 +640,38 @@ final class Tracker: ObservableObject {
         if tasks.contains(where: stale) { tasks.removeAll(where: stale) }
         if chatSession != nil && now.timeIntervalSince(lastChatLoad) > 2 { refreshChat() }
         if !herdrPolling && now.timeIntervalSince(lastHerdrPoll) > 3 { pollHerdr() }
-        if !stackPolling && now.timeIntervalSince(lastStackPoll) > 5 { pollStacks() }
-        if !awsChecking && now.timeIntervalSince(lastAwsCheck) > (now < awsFastUntil ? 8 : 120) { checkAws() }
-        if Gcp.bin != nil && !gcpChecking && now.timeIntervalSince(lastGcpCheck) > (now < gcpFastUntil ? 8 : 120) { checkGcp() }
+        if on(.devStack) && !stackPolling && now.timeIntervalSince(lastStackPoll) > 5 { pollStacks() }
+        if on(.aws) && !awsChecking && now.timeIntervalSince(lastAwsCheck) > (now < awsFastUntil ? 8 : 120) { checkAws() }
+        if on(.gcp) && Gcp.bin != nil && !gcpChecking && now.timeIntervalSince(lastGcpCheck) > (now < gcpFastUntil ? 8 : 120) { checkGcp() }
         if !cloudPolling { pollCloudIfDue(now) }
-        if !sitesPolling && now.timeIntervalSince(lastSitesPoll) > (now < sitesFastUntil ? 30 : 180) { pollSites() }
+        if on(.sites) && !sitesPolling && now.timeIntervalSince(lastSitesPoll) > (now < sitesFastUntil ? 30 : 180) { pollSites() }
         if prodCommands.contains(where: { now.timeIntervalSince($0.at) > 600 }) {
             prodCommands.removeAll { now.timeIntervalSince($0.at) > 600 }
         }
         if now.timeIntervalSince(lastStuckCheck) > 10 { checkStuck(now); checkBreak(now) }
+        if now.timeIntervalSince(lastFeatureCheck) > 30 { lastFeatureCheck = now; clearDisabled() }
         if bubble != nil && now > bubbleUntil { withAnimation(.easeOut(duration: 0.3)) { bubble = nil; bubbleAction = nil } }
         if let until = napUntil, now >= until { wake() }
-        if !prPolling && now.timeIntervalSince(lastPRPoll) > 120 { pollPRs() }
-        if now.timeIntervalSince(lastHousekeeping) > 600 { scanHousekeeping() }
-        if !prStatsPolling && now.timeIntervalSince(lastPRStats) > 1800 { pollPRStats() }
-        if now.timeIntervalSince(lastUsageCheck) > 20 { checkUsage(now) }
-        if now.timeIntervalSince(lastMeetingPoll) > 30 { checkMeetings(now) }
+        if on(.pullRequests) && !prPolling && now.timeIntervalSince(lastPRPoll) > 120 { pollPRs() }
+        if on(.housekeeping) && now.timeIntervalSince(lastHousekeeping) > 600 { scanHousekeeping() }
+        if on(.prStats) && !prStatsPolling && now.timeIntervalSince(lastPRStats) > 1800 { pollPRStats() }
+        if on(.claudeUsage) && now.timeIntervalSince(lastUsageCheck) > 20 { checkUsage(now) }
+        if on(.meetings) && now.timeIntervalSince(lastMeetingPoll) > 30 { checkMeetings(now) }
+        if (on(.backgroundAgents) || on(.cloudBranches)) && !cloudAgentsPolling
+            && now.timeIntervalSince(lastCloudAgentsPoll) > 20 { pollCloudAgents(now) }
+        if on(.jira) && !jiraPolling && now.timeIntervalSince(lastJiraPoll) > 180 { pollJira() }
+        if on(.deploys), let gitlab = config.gitlab, GitLab.bin != nil, !gitlabDeploysPolling,
+           now.timeIntervalSince(lastGitlabDeploys) > max(30, config.pollSeconds) {
+            gitlabDeploysPolling = true
+            lastGitlabDeploys = now
+            stackQueue.async {
+                let results = GitLab.deployments(gitlab)
+                DispatchQueue.main.async {
+                    self.gitlabDeploysPolling = false
+                    for (project, runs) in results { self.mergeDeploys(repo: "gitlab:" + project, runs: runs) }
+                }
+            }
+        }
 
         let newMood: Mood = now < celebrateUntil ? .celebrating
             : now < alertUntil || !requests.isEmpty || tasks.contains { $0.state == .waiting }
@@ -576,6 +693,7 @@ final class Tracker: ObservableObject {
 
         switch event {
         case "ProdTouch":
+            guard on(.prodWarning) else { return }
             let cmd = (e["command"] as? String) ?? ""
             let signal = ProdSignal(key: sid + cmd, text: "\(project) ran: \(oneLine(cmd, max: 90))", at: Date())
             prodCommands.removeAll { $0.key == signal.key }
@@ -632,6 +750,7 @@ final class Tracker: ObservableObject {
             say("📨 Message delivered to \(project)", for: 3)
 
         case "Todo":
+            guard on(.todos) else { return }
             addTodo((e["message"] as? String) ?? "")
             return
 
@@ -803,6 +922,24 @@ final class Tracker: ObservableObject {
                     }
                 }
             }
+        } else if let task, task.kind == "codex", task.state == .done {
+            // Idle Codex session with no terminal we can type into: Codex's own queue.
+            msg.via = "terminal"
+            let project = task.project
+            let thread = String(sessionId.dropFirst("codex-".count))
+            chatQueue.async {
+                let error = CodexCloud.queue(thread: thread, message: text)
+                DispatchQueue.main.async {
+                    if let error {
+                        self.enqueue(text, id: msg.id, for: sessionId)
+                        self.updateSent(sessionId, msg.id) { $0.via = nil }
+                        self.say("⚠️ Couldn't queue it in Codex (\(error)). It'll go at \(project)'s next step.", for: 6)
+                    } else {
+                        self.updateSent(sessionId, msg.id) { $0.delivered = true }
+                        self.say("📨 Queued for \(project) in Codex", for: 3)
+                    }
+                }
+            }
         } else {
             enqueue(text, id: msg.id, for: sessionId)
         }
@@ -919,9 +1056,9 @@ final class Tracker: ObservableObject {
         let busy = ecs.contains { $0.deploying || $0.running < $0.desired } || deploys.contains { $0.isActive }
             || cloudRun.contains { $0.deploying || $0.isUnhealthy }
         let cloudDue = now.timeIntervalSince(lastEcsPoll) > (busy ? 30 : 180)
-        let ecsDue = !(config.ecsClusters ?? []).isEmpty && !aws.isLoggedOut && cloudDue
-        let runDue = !gcpProjects.isEmpty && Gcp.bin != nil && !gcp.isLoggedOut && cloudDue
-        let codexDue = CodexCloud.bin != nil && now.timeIntervalSince(lastCodexPoll) > (codexSignedIn ? 60 : 600)
+        let ecsDue = on(.ecs) && !(config.ecsClusters ?? []).isEmpty && !aws.isLoggedOut && cloudDue
+        let runDue = on(.gcp) && !gcpProjects.isEmpty && Gcp.bin != nil && !gcp.isLoggedOut && cloudDue
+        let codexDue = on(.codexCloud) && CodexCloud.bin != nil && now.timeIntervalSince(lastCodexPoll) > (codexSignedIn ? 60 : 600)
         guard ecsDue || codexDue || runDue else { return }
         cloudPolling = true
         if ecsDue || runDue { lastEcsPoll = now }
@@ -1100,7 +1237,7 @@ final class Tracker: ObservableObject {
             let logs = stacks.flatMap { st in
                 st.services.filter { $0.status == .up && !$0.logPath.isEmpty }.map { (st.name, $0.name, $0.logPath) }
             }
-            let errors = self.logWatcher.scan(logs.map { (stack: $0.0, service: $0.1, path: $0.2) })
+            let errors = self.on(.logErrors) ? self.logWatcher.scan(logs.map { (stack: $0.0, service: $0.1, path: $0.2) }) : []
             DispatchQueue.main.async {
                 self.stackPolling = false
                 self.mergeStacks(stacks, tunnels)
@@ -1172,6 +1309,7 @@ final class Tracker: ObservableObject {
 
     private func checkStuck(_ now: Date) {
         lastStuckCheck = now
+        guard on(.stuckAlerts) else { return }
         let waitLimit = (config.stuckWaitingMinutes ?? 10) * 60
         let quietLimit = (config.stuckQuietMinutes ?? 20) * 60
         for i in tasks.indices {
@@ -1206,13 +1344,14 @@ final class Tracker: ObservableObject {
                                                           eventType: CGEventType(rawValue: ~0) ?? .mouseMoved)
         quietNow = napping || microphoneInUse() || currentMeeting != nil
         lastIdle = idle
-        checkAutoRemote(idle: idle)
-        checkJuggling(now)
+        if on(.walking) { maybeWalk(now) }
+        if on(.autoRemote) { checkAutoRemote(idle: idle) }
+        if on(.juggling) { checkJuggling(now) }
         trackToday(now, idle: idle)
         checkFestival(now)
         checkWater(now, idle: idle)
-        checkDaily(now, idle: idle)
-        checkWorkday(now, idle: idle)
+        if on(.dailyReminders) { checkDaily(now, idle: idle) }
+        if on(.endOfDay) { checkWorkday(now, idle: idle) }
         if var hold = activityHold {
             if idle >= 300 { hold.sawAway = true }
             activityHold = (hold.sawAway && idle < 30) || now > hold.until ? nil : hold
@@ -1226,7 +1365,7 @@ final class Tracker: ObservableObject {
             return
         }
         if workStreakStart == nil { workStreakStart = now }
-        guard let start = workStreakStart, now > breaksSnoozedUntil, !quietNow, !offDuty else { return }
+        guard on(.breaks), let start = workStreakStart, now > breaksSnoozedUntil, !quietNow, !offDuty else { return }
         let worked = now.timeIntervalSince(start)
         if worked >= (config.breakMinutes ?? 90) * 60 && now.timeIntervalSince(lastBreakNag) >= 20 * 60 {
             lastBreakNag = now
@@ -1368,6 +1507,7 @@ final class Tracker: ObservableObject {
     // MARK: Deploys
 
     private func mergeDeploys(repo: String, runs: [DeployRun]) {
+        guard on(.deploys) else { if !deploys.isEmpty { deploys = [] }; return }
         // The first poll of a repo only fills the list; it doesn't announce old runs.
         let firstPoll = seededRepos.insert(repo).inserted
         let now = Date()
@@ -1522,7 +1662,8 @@ final class Tracker: ObservableObject {
         if idle < 120 { today.activeSeconds += dt }
         // Your time, for the timesheet: in a meeting, else the project you last prompted
         // an agent in (for 20 min), else "Other".
-        if currentMeeting != nil {
+        if !on(.timesheet) {
+        } else if currentMeeting != nil {
             today.focusSeconds = today.focusSeconds ?? [:]
             today.focusSeconds!["Meetings", default: 0] += dt
         } else if idle < 120 {
@@ -1562,28 +1703,35 @@ final class Tracker: ObservableObject {
     // MARK: Pull requests
 
     private func pollPRs() {
-        guard PRWatcher.gh != nil else { return }
+        let gitlab = config.gitlab
+        guard PRWatcher.gh != nil || (GitLab.bin != nil && gitlab != nil) else { return }
         prPolling = true
         lastPRPoll = Date()
         let repos = config.repos
         let old = prs
         let agents = tasks.compactMap { t in t.cwd.map { (id: t.id, cwd: $0, idle: t.state == .done) } }
         stackQueue.async {
-            guard var mine = PRWatcher.mine(repos: repos) else {
+            let fromGitHub = PRWatcher.gh != nil ? PRWatcher.mine(repos: repos) : nil
+            let fromGitLab = gitlab.flatMap { GitLab.mine($0) }
+            guard fromGitHub != nil || fromGitLab != nil else {
                 DispatchQueue.main.async { self.prPolling = false }
                 return
             }
+            var mine = (fromGitHub ?? []) + (fromGitLab ?? [])
             // Failing PRs: the first CI error, and a local agent on the same branch (idle ones first).
             let branchOf = PRWatcher.branches(of: agents.map(\.cwd))
             for i in mine.indices where mine[i].checks == .failing {
-                mine[i].ciError = PRWatcher.ciError(mine[i])
+                if mine[i].host == "github" { mine[i].ciError = PRWatcher.ciError(mine[i]) }
                 let onBranch = agents.filter { branchOf[$0.cwd] == mine[i].headRef }
                 mine[i].agentId = (onBranch.first { $0.idle } ?? onBranch.first)?.id
             }
-            let reviews = PRWatcher.reviewRequests()
+            let reviews = (PRWatcher.gh != nil ? PRWatcher.reviewRequests() : []) + (gitlab.map { GitLab.reviewRequests($0) } ?? [])
             // PRs that dropped off the open list: merged or closed?
             let gone = old.filter { o in !mine.contains { $0.id == o.id } }
-            let merged = gone.filter { PRWatcher.wasMerged($0) }
+            let merged = gone.filter { pr in
+                if pr.host == "gitlab", let gitlab { return GitLab.wasMerged(pr, gitlab) }
+                return PRWatcher.wasMerged(pr)
+            }
             DispatchQueue.main.async {
                 self.prPolling = false
                 self.mergePRs(mine, reviews, merged: merged)
@@ -1641,6 +1789,185 @@ final class Tracker: ObservableObject {
 
     func reveal(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    // MARK: Turning features off
+
+    /// Clears what a feature showed once it's turned off.
+    private func clearDisabled() {
+        if !on(.pullRequests) && !(prs.isEmpty && reviewPRs.isEmpty) { prs = []; reviewPRs = [] }
+        if !on(.prStats) && prStats != nil { prStats = nil }
+        if !on(.ecs) && !ecs.isEmpty { ecs = [] }
+        if !on(.gcp) && !cloudRun.isEmpty { cloudRun = [] }
+        if !on(.codexCloud) && !codexCloud.isEmpty { codexCloud = [] }
+        if !on(.sites) && !sites.isEmpty { sites = [] }
+        if !on(.aws) && aws != .unknown { aws = .unknown }
+        if !on(.gcp) && gcp != .unknown { gcp = .unknown }
+        if !on(.claudeUsage) && usage != nil { usage = nil }
+        if !on(.housekeeping) && housekeeping.hasNews { housekeeping = Housekeeping() }
+        if !on(.backgroundAgents) && !backgroundAgents.isEmpty { backgroundAgents = [] }
+        if !on(.cloudBranches) && !cloudBranches.isEmpty { cloudBranches = [] }
+        if !on(.jira) && !jiraIssues.isEmpty { jiraIssues = [] }
+        if !on(.dailyReminders) && dueReminder != nil { dueReminder = nil }
+        if !on(.endOfDay) && endOfDayDue { endOfDayDue = false }
+    }
+
+    // MARK: Background agents and cloud sessions
+
+    private func pollCloudAgents(_ now: Date) {
+        cloudAgentsPolling = true
+        lastCloudAgentsPoll = now
+        let wantBg = on(.backgroundAgents)
+        let branchesDue = on(.cloudBranches) && now.timeIntervalSince(lastBranchPoll) > 120
+        if branchesDue { lastBranchPoll = now }
+        let repos = config.repos
+        let gitlab = config.gitlab
+        let cwds = tasks.compactMap(\.cwd)
+        stackQueue.async {
+            let bg = wantBg ? ClaudeAgents.background() : nil
+            var branches: [CloudBranch]?
+            if branchesDue {
+                // Branches a local agent has checked out aren't cloud sessions.
+                let local = Set(PRWatcher.branches(of: cwds).values)
+                let all = ClaudeAgents.cloudBranches(repos: repos) + (gitlab.map { GitLab.cloudBranches($0) } ?? [])
+                branches = all.filter { !local.contains($0.branch) }.sorted { $0.committed > $1.committed }
+            }
+            DispatchQueue.main.async {
+                self.cloudAgentsPolling = false
+                if let bg { self.mergeBackground(bg) }
+                if let branches { self.mergeBranches(branches) }
+            }
+        }
+    }
+
+    private func mergeBackground(_ list: [BackgroundAgent]) {
+        if cloudAgentsSeeded {
+            for a in list {
+                let was = backgroundAgents.first { $0.id == a.id }?.state
+                guard a.state != was else { continue }
+                switch a.state {
+                case .waiting:
+                    alertUntil = Date().addingTimeInterval(5)
+                    say("🙋 Background agent \"\(a.name)\" (\(a.project)) needs you" + (a.waitingFor.isEmpty ? "" : ": \(a.waitingFor)"), for: 15)
+                case .done where was == .working:
+                    celebrateUntil = Date().addingTimeInterval(4)
+                    say("✅ Background agent \"\(a.name)\" (\(a.project)) is done", for: 10)
+                default: break
+                }
+            }
+        }
+        cloudAgentsSeeded = true
+        let shown = list.filter { $0.state != .done } + list.filter { $0.state == .done }.prefix(3)
+        if shown != backgroundAgents { backgroundAgents = shown }
+    }
+
+    private func mergeBranches(_ list: [CloudBranch]) {
+        if branchesSeeded {
+            for b in list {
+                let link = b.url.map { BubbleAction.url($0) }
+                guard let was = cloudBranches.first(where: { $0.id == b.id }) else {
+                    sayWork("☁️ Claude is working on \(b.branch) in \(b.repoName): \(oneLine(b.headline, max: 80))", for: 10, action: link)
+                    continue
+                }
+                if let n = b.prNumber, was.prNumber == nil {
+                    celebrateUntil = Date().addingTimeInterval(4)
+                    sayWork("🔀 Claude opened PR #\(n) in \(b.repoName): \(b.prTitle ?? b.branch)", for: 12, action: link)
+                }
+            }
+        }
+        branchesSeeded = true
+        if list != cloudBranches { cloudBranches = list }
+    }
+
+    func attach(_ agent: BackgroundAgent) {
+        stackQueue.async { ClaudeAgents.attach(agent) }
+    }
+
+    // MARK: Jira
+
+    private func pollJira() {
+        guard let jira = config.jira else { return }
+        jiraPolling = true
+        lastJiraPoll = Date()
+        stackQueue.async {
+            let result = Jira.fetch(jira)
+            DispatchQueue.main.async {
+                self.jiraPolling = false
+                switch result {
+                case .ok(let issues):
+                    self.jiraProblem = nil
+                    self.mergeJira(issues)
+                case .noToken:
+                    self.jiraProblem = "Add your Jira API token to the Keychain (see the README)."
+                case .failed(let why):
+                    self.jiraProblem = why
+                }
+            }
+        }
+    }
+
+    private func mergeJira(_ issues: [JiraIssue]) {
+        if jiraSeeded {
+            for i in issues {
+                let link = i.url.map { BubbleAction.url($0) }
+                if let was = jiraIssues.first(where: { $0.key == i.key }) {
+                    if was.status != i.status { sayWork("🎫 \(i.key) moved to \(i.status): \(oneLine(i.summary, max: 70))", for: 10, action: link) }
+                } else {
+                    alertUntil = Date().addingTimeInterval(4)
+                    sayWork("🎫 New ticket for you: \(i.key) \(oneLine(i.summary, max: 80))", for: 12, action: link)
+                }
+            }
+        }
+        jiraSeeded = true
+        if issues != jiraIssues { jiraIssues = issues }
+    }
+
+    // MARK: Walking
+
+    /// Every few minutes while nothing's happening, stroll to another spot along the screen.
+    private func maybeWalk(_ now: Date) {
+        guard walkTimer == nil, now >= nextWalk, mood == .idle, activity == nil, !expanded, bubble == nil,
+              let mover, let window = mover.window, let screen = window.screen?.visibleFrame else { return }
+        nextWalk = now.addingTimeInterval(Double.random(in: 120...300))
+        let width = window.frame.width
+        let minX = screen.minX + width + 10, maxX = screen.maxX - 8
+        guard maxX - minX > 200 else { return }
+        var target = CGFloat.random(in: minX...maxX)
+        if abs(target - window.frame.maxX) < 150 { target = window.frame.maxX > screen.midX ? minX + 60 : maxX - 60 }
+        let dir: CGFloat = target > window.frame.maxX ? 1 : -1
+        withAnimation(.easeInOut(duration: 0.25)) { walkDirection = dir }
+        walkTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            guard let self, let w = mover.window else { self?.stopWalking(); return }
+            let busy = self.mood != .idle || self.expanded || self.bubble != nil || self.activity != nil || mover.dragging
+            let left = target - w.frame.maxX
+            if busy || abs(left) < 2 { self.stopWalking(); return }
+            w.setFrameOrigin(NSPoint(x: w.frame.minX + max(-2.2, min(2.2, left)), y: w.frame.minY))
+        }
+    }
+
+    func stopWalking() {
+        walkTimer?.invalidate()
+        walkTimer = nil
+        if walkDirection != 0 { withAnimation(.easeInOut(duration: 0.25)) { walkDirection = 0 } }
+        mover?.saveAnchor()
+    }
+
+    // MARK: Quick capture
+
+    /// ⌥Space: a to-do, or "@project message" for that project's agent.
+    func capture(_ text: String) {
+        if text.hasPrefix("@"), let space = text.firstIndex(of: " ") {
+            let name = String(text[text.index(after: text.startIndex)..<space]).lowercased()
+            let message = String(text[space...]).trimmingCharacters(in: .whitespaces)
+            if let task = tasks.first(where: { $0.project.lowercased().contains(name) && !$0.isHerdrOnly }) ?? tasks.first(where: { $0.project.lowercased().contains(name) }),
+               !message.isEmpty {
+                sendChat(message, to: task.id)
+                say("📨 Sent to \(task.project): \(oneLine(message, max: 60))", for: 4)
+                return
+            }
+            say("🤔 No agent matches \"\(name)\", so I added it to your to-dos.", for: 5)
+        }
+        addTodo(text)
     }
 
     // MARK: To-dos
@@ -1763,12 +2090,13 @@ final class Tracker: ObservableObject {
     // MARK: PR stats
 
     func pollPRStats() {
-        guard PRWatcher.gh != nil else { return }
+        guard PRWatcher.gh != nil || (GitLab.bin != nil && config.gitlab != nil) else { return }
         prStatsPolling = true
         lastPRStats = Date()
         let repos = config.repos
+        let gitlab = config.gitlab
         stackQueue.async {
-            let stats = PRStats.fetch(repos: repos)
+            let stats = PRStats.fetch(repos: repos, gitlab: gitlab)
             DispatchQueue.main.async {
                 self.prStatsPolling = false
                 if let stats { self.prStats = stats }
@@ -1841,10 +2169,16 @@ final class WindowMover {
     /// Returns true if this gesture was a drag (not a click).
     func end() -> Bool {
         defer { startMouse = nil }
-        if moved, let w = window {
-            UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: w.frame.maxX, y: w.frame.minY)), forKey: "anchor")
-        }
+        if moved { saveAnchor() }
         return moved
+    }
+
+    var dragging: Bool { startMouse != nil }
+
+    /// Remembers where the buddy is (its bottom-right corner), for the next start.
+    func saveAnchor() {
+        guard let w = window else { return }
+        UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: w.frame.maxX, y: w.frame.minY)), forKey: "anchor")
     }
 
     /// Resizes the window to the content, keeping the robot's corner (bottom-right) in place.
@@ -1901,6 +2235,9 @@ struct BuddyCharacter: View {
     var activity: BuddyActivity? = nil
     var prod = false
     var costume: Costume? = nil
+    var tricks = false
+    var eyesFollow = false
+    var walking: CGFloat = 0
     let count: Int
     let alert: Bool
     let remote: Bool
@@ -1917,7 +2254,8 @@ struct BuddyCharacter: View {
             Color.clear.frame(width: 130, height: 150)
         } else {
             ZStack {
-                Buddy3DView(character: character, mood: mood, activity: activity, costume: costume)
+                Buddy3DView(character: character, mood: mood, activity: activity, costume: costume,
+                            tricks: tricks, eyesFollow: eyesFollow, walking: walking)
                     .id(character) // a new scene when the character changes
                     .frame(width: 130, height: 150)
                     .offset(y: 4)
@@ -2453,8 +2791,8 @@ struct PRSection: View {
                 }
             }
             if !closed {
-                if PRWatcher.gh == nil {
-                    Text("Install GitHub's gh to see your PRs.").font(.system(size: 11)).foregroundStyle(.secondary)
+                if PRWatcher.gh == nil && GitLab.bin == nil {
+                    Text("Install gh (GitHub) or glab (GitLab) to see your PRs and merge requests.").font(.system(size: 11)).foregroundStyle(.secondary)
                 } else if tracker.prs.isEmpty && tracker.reviewPRs.isEmpty {
                     Text("No open PRs.").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
@@ -2964,6 +3302,9 @@ struct RootView: View {
                            activity: tracker.activity,
                            prod: tracker.prodActive,
                            costume: tracker.festival?.costume,
+                           tricks: tracker.on(.idleTricks),
+                           eyesFollow: tracker.on(.eyesFollow),
+                           walking: tracker.walkDirection,
                            count: tracker.needsYouCount > 0 ? tracker.needsYouCount : tracker.activeCount,
                            alert: tracker.needsYouCount > 0,
                            remote: tracker.remoteMode)
@@ -3072,6 +3413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         mover.window = panel // before the first layout, so the first fit() can size the window
+        tracker.mover = mover
         host = ClickThroughHostingView(rootView: AnchoredRoot(tracker: tracker, mover: mover))
         host.sizingOptions = [] // the window is sized by WindowMover.fit, not by SwiftUI constraints
         host.frame = NSRect(origin: .zero, size: size)
@@ -3080,6 +3422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
 
         tracker.start()
+        if Setup.needed { DispatchQueue.main.async { Setup.offer() } }
         // Any state change can change what's showing; measure after SwiftUI applies it.
         sizeWatch = tracker.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.fitWindow() }
@@ -3095,6 +3438,15 @@ MainActor.assumeIsolated {
         NSApp.setActivationPolicy(.prohibited)
         let dir = CommandLine.arguments.indices.contains(i + 1) ? CommandLine.arguments[i + 1] : "docs"
         DocsRenderer.run(outDir: dir)
+    }
+    // `AgentBuddy --setup [--launch-agent]`: connect to Claude Code and Codex, then exit (used by install.sh).
+    if CommandLine.arguments.contains("--uninstall") {
+        for line in Setup.uninstall() { print("  " + line) }
+        exit(0)
+    }
+    if CommandLine.arguments.contains("--setup") {
+        for line in Setup.run(launchAgent: CommandLine.arguments.contains("--launch-agent")) { print("  " + line) }
+        exit(0)
     }
     let app = NSApplication.shared
     let delegate = AppDelegate()

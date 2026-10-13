@@ -295,7 +295,7 @@ struct PRStatsSection: View {
                         }
                     }
                 } else {
-                    Text(PRWatcher.gh == nil ? "Install GitHub's gh to see PR stats." : "Counting…")
+                    Text(PRWatcher.gh == nil && GitLab.bin == nil ? "Install gh (GitHub) or glab (GitLab) to see PR stats." : "Counting…")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -312,5 +312,102 @@ struct PRStatsSection: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+    }
+}
+
+// MARK: - Jira
+
+struct JiraSection: View {
+    @ObservedObject var tracker: Tracker
+
+    var body: some View {
+        let closed = tracker.closedSections.contains("jira")
+        VStack(alignment: .leading, spacing: 5) {
+            SectionHeader(tracker: tracker, key: "jira", title: "Jira") {
+                Text(tracker.jiraProblem != nil ? "⚠ not connected" : "\(tracker.jiraIssues.count) open")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            if !closed {
+                if let problem = tracker.jiraProblem {
+                    Text(problem).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else if tracker.jiraIssues.isEmpty {
+                    Text("Nothing assigned to you. 🎉").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                ForEach(tracker.jiraIssues.prefix(8)) { i in
+                    HStack(spacing: 6) {
+                        Text(i.key).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        Text(i.summary).font(.system(size: 12)).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(i.status)
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(statusColor(i).opacity(0.18)))
+                            .foregroundStyle(statusColor(i))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let u = i.url { NSWorkspace.shared.open(u) } }
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func statusColor(_ i: JiraIssue) -> Color {
+        i.category == "done" ? Palette.green : i.category == "indeterminate" ? Palette.blue : Palette.muted
+    }
+}
+
+// MARK: - Background agents and cloud sessions
+
+struct BackgroundCloudSection: View {
+    @ObservedObject var tracker: Tracker
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            eyebrow("Background & cloud").padding(.bottom, 2)
+            ForEach(tracker.backgroundAgents) { a in
+                HStack(spacing: 10) {
+                    Circle().fill(color(a.state)).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(a.name).font(.system(size: 13)).lineLimit(1)
+                        Text("\(a.project) · " + (a.state == .waiting ? (a.waitingFor.isEmpty ? "needs you" : a.waitingFor)
+                                                  : a.state == .working ? "working" : a.state == .done ? "done" : "idle"))
+                            .font(.system(size: 11)).foregroundStyle(a.state == .waiting ? Palette.redText : Palette.faint)
+                    }
+                    Spacer()
+                    Button("Open") { tracker.attach(a) }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .help("Opens it in Terminal (claude attach)")
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
+            }
+            ForEach(tracker.cloudBranches.prefix(6)) { b in
+                HStack(spacing: 10) {
+                    Image(systemName: b.prNumber != nil ? "arrow.triangle.pull" : "cloud")
+                        .font(.system(size: 11)).foregroundStyle(b.active ? Palette.orange : Palette.muted).frame(width: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(b.prNumber.map { "\(b.repoName) #\($0) \(b.prTitle ?? "")" } ?? "\(b.repoName) · \(b.branch)")
+                            .font(.system(size: 13)).lineLimit(1)
+                        Text("\(b.active ? "working · " : "")\(formatDuration(now.timeIntervalSince(b.committed))) ago · \(b.headline)")
+                            .font(.system(size: 11)).foregroundStyle(Palette.faint).lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .onTapGesture { if let u = b.url { NSWorkspace.shared.open(u) } }
+            }
+        }
+    }
+
+    private func color(_ s: BackgroundAgent.State) -> Color {
+        switch s {
+        case .waiting: Palette.red
+        case .working: Palette.orange
+        case .done: Palette.green
+        case .idle: Palette.faint
+        }
     }
 }

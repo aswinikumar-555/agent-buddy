@@ -44,6 +44,7 @@ struct PullRequest: Identifiable, Equatable {
     var headRef = ""
     var ciError: String? = nil   // first error line of the newest failed CI run
     var agentId: String? = nil   // a local agent working on this PR's branch
+    var host = "github"          // or "gitlab" (a merge request)
 
     var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     /// Checks green, no conflicts, and approved (or the repo doesn't require a review).

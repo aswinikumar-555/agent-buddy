@@ -139,7 +139,26 @@ struct PRStats: Equatable {
 
     var myRank: Int? { board.firstIndex { $0.login == me }.map { $0 + 1 } }
 
-    static func fetch(repos: [String]) -> PRStats? {
+    /// GitHub (repos) and GitLab (projects) together; your GitLab username counts as you.
+    static func fetch(repos: [String], gitlab: GitLabConfig?) -> PRStats? {
+        let fromGitHub = repos.isEmpty && gitlab != nil ? nil : fetchGitHub(repos: repos)
+        guard let lab = gitlab.flatMap({ GitLab.stats($0) }) else { return fromGitHub }
+        var s = fromGitHub ?? PRStats(me: lab.me)
+        var counts = Dictionary(uniqueKeysWithValues: s.board.map { ($0.login, $0.merged) })
+        if fromGitHub == nil { counts = [:] }
+        for (who, n) in lab.merged { counts[who == lab.me ? s.me : who, default: 0] += n }
+        s.merged += lab.merged[lab.me] ?? 0
+        s.opened += lab.opened
+        s.reviewed += lab.reviewed
+        if !lab.hours.isEmpty {
+            let all = (s.mergeHours.map { [$0] } ?? []) + lab.hours
+            s.mergeHours = all.sorted()[all.count / 2]
+        }
+        s.board = counts.map { Person(login: $0.key, merged: $0.value) }.sorted { ($0.merged, $1.login) > ($1.merged, $0.login) }
+        return s
+    }
+
+    private static func fetchGitHub(repos: [String]) -> PRStats? {
         guard let gh = PRWatcher.gh else { return nil }
         func json(_ args: [String]) -> [[String: Any]]? {
             let (st, out) = runProcess(gh, args, env: nil)
