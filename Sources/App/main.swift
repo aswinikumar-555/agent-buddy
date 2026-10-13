@@ -333,9 +333,14 @@ final class Tracker: ObservableObject {
 
     /// Red and orange lights, for the collapsed status line.
     var statusCounts: (red: Int, orange: Int) {
-        var red = stacks.reduce(0) { $0 + $1.downCount } + prs.filter { $0.checks == .failing }.count
-            + sites.filter { $0.failures >= 2 }.count + ecs.filter(\.isUnhealthy).count + cloudRun.filter(\.isUnhealthy).count
-            + (aws.isLoggedOut ? 1 : 0) + backgroundAgents.filter { $0.state == .waiting }.count
+        // Added up one at a time: one long sum is too slow for the compiler to type-check.
+        var red = stacks.reduce(0) { $0 + $1.downCount }
+        red += prs.filter { $0.checks == .failing }.count
+        red += sites.filter { $0.failures >= 2 }.count
+        red += ecs.filter(\.isUnhealthy).count
+        red += cloudRun.filter(\.isUnhealthy).count
+        red += backgroundAgents.filter { $0.state == .waiting }.count
+        if aws.isLoggedOut { red += 1 }
         var orange = deploys.filter(\.isActive).count
         if housekeeping.lowDisk { red += 1 } else if housekeeping.hasNews { orange += 1 }
         if let u = usage, let p = [u.fiveHour?.percent, u.week?.percent].compactMap({ $0 }).max() {
@@ -367,9 +372,8 @@ final class Tracker: ObservableObject {
     }
     /// Everything in the panel's "Needs you" list.
     var panelNeedsYou: Int {
-        requests.count + waitingAgents.count + urgentMessages.count
-            + (breakDue ? 1 : 0) + (waterDue ? 1 : 0) + (dueReminder != nil ? 1 : 0)
-            + (endOfDayDue ? 1 : 0) + (yesterdayNote != nil ? 1 : 0) + (napSummary != nil ? 1 : 0)
+        let cards = [breakDue, waterDue, dueReminder != nil, endOfDayDue, yesterdayNote != nil, napSummary != nil].filter { $0 }.count
+        return requests.count + waitingAgents.count + urgentMessages.count + cards
     }
     var breakMinutes: Double { config.breakMinutes ?? 90 }
     var waterMinutes: Double { config.waterMinutes ?? 60 }
@@ -549,11 +553,12 @@ final class Tracker: ObservableObject {
 
     /// Agents waiting on you (a request card or a blocked prompt).
     var needsYouCount: Int {
-        Set(requests.map(\.sessionId)).union(tasks.filter { $0.state == .waiting }.map(\.id)).count
-            + stacks.reduce(0) { $0 + $1.downCount }
-            + (aws.isLoggedOut ? 1 : 0)
-            + (gcp.isLoggedOut && !gcpProjects.isEmpty ? 1 : 0)
-            + backgroundAgents.filter { $0.state == .waiting }.count
+        var n = Set(requests.map(\.sessionId)).union(tasks.filter { $0.state == .waiting }.map(\.id)).count
+        n += stacks.reduce(0) { $0 + $1.downCount }
+        n += backgroundAgents.filter { $0.state == .waiting }.count
+        if aws.isLoggedOut { n += 1 }
+        if gcp.isLoggedOut && !gcpProjects.isEmpty { n += 1 }
+        return n
     }
 
     func resize(by step: Double) {
