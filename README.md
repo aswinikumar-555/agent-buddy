@@ -218,9 +218,17 @@ The images in this README are drawn by the app itself from made-up sample data, 
 - `Sources/App/` is the app (SwiftUI + SceneKit): `main.swift` (tracking and the buddy), `Panel.swift` (the panel), `Buddy3D.swift` (the 3D characters), plus one file per feature area.
 - `Sources/Hook/main.swift` is the small program Claude Code and Codex run for each hook event. It appends one line to `~/.agent-buddy/events.jsonl`, and in Remote mode waits for your answer from the app.
 
+## Contributing
+
+Ideas, bug reports and pull requests are welcome.
+
+- **Suggest a feature:** [open a feature request](https://github.com/aswinikumar-555/agent-buddy/issues/new?template=feature_request.md)
+- **Report a bug:** [open a bug report](https://github.com/aswinikumar-555/agent-buddy/issues/new?template=bug_report.md)
+- **Send code:** see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, where things are, and house rules.
+
 ## Credits
 
-Some ideas (done summaries, `buddy say`, Codex hooks, end of day, nap) were inspired by [varun-ml/buddy](https://github.com/varun-ml/buddy), an MIT-licensed desktop pet for coding agents. Built with [Claude Code](https://claude.com/claude-code).
+Built with [Claude Code](https://claude.com/claude-code).
 
 ## License
 
