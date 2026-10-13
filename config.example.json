@@ -1,0 +1,41 @@
+{
+  "repos": ["your-org/your-repo"],
+  "deployWorkflowPattern": "(?i)deploy|promote|rollback|release",
+  "pollSeconds": 45,
+
+  "workHours": { "start": "09:30", "end": "19:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
+  "breakMinutes": 90,
+  "breakResetMinutes": 5,
+  "waterMinutes": 60,
+  "dailyReminders": [
+    { "time": "13:30", "title": "Lunch break", "message": "Step away and have lunch. Your agents will keep going.", "emoji": "🍱", "activity": "eat" },
+    { "time": "23:00", "title": "Time to sleep", "message": "Wrap up, let your agents finish, and get some sleep.", "emoji": "😴", "activity": "sleep" }
+  ],
+
+  "stuckWaitingMinutes": 10,
+  "stuckQuietMinutes": 20,
+  "juggle": 5,
+  "autoRemote": true,
+  "autoRemoteMinutes": 5,
+
+  "stackRoots": ["~/Developer"],
+  "dbTunnels": [{ "env": "staging", "port": 5437 }, { "env": "prod", "port": 5439 }],
+
+  "ecsRegion": "us-east-1",
+  "ecsClusters": ["myapp-staging", "myapp-prod"],
+
+  "gcpProjects": [{ "project": "my-gcp-project", "region": "us-central1" }],
+
+  "sites": [
+    { "name": "staging", "url": "https://staging.example.com/api/health", "prod": false },
+    { "name": "production", "url": "https://example.com/api/health", "prod": true }
+  ],
+
+  "prodEnvs": ["prod", "production"],
+  "prodPatterns": [
+    "--profile[= ]+prod",
+    "\\b(ENV|NODE_ENV|APP_ENV|RAILS_ENV|STAGE)=(prod|production)\\b",
+    "git\\s+push\\b.*\\b(prod|production)\\b",
+    "kubectl\\b.*--context[= ]\\S*prod"
+  ]
+}
