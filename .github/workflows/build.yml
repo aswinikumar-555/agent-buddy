@@ -1,0 +1,24 @@
+# Builds Agent Buddy on a Mac for every push and pull request, so a change that
+# doesn't compile shows a red ✗ before it's merged.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swiftc --version
+      - name: Build the app and the hook (Apple silicon + Intel)
+        run: bash scripts/build-app.sh --universal
+      - name: The hook runs
+        run: |
+          echo '{"model":{"display_name":"Test"}}' | build/AgentBuddy.app/Contents/Resources/buddy-hook statusline
