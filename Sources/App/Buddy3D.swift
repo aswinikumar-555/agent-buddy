@@ -11,9 +11,18 @@ enum BuddyActivity: String {
 }
 
 enum BuddyCharacterKind: String, CaseIterable, Identifiable {
-    case nori, bolt
+    case nori, bolt, quackers, sage, nova
     var id: String { rawValue }
-    var title: String { self == .nori ? "Nori (cat)" : "Bolt (robot)" }
+    var name: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+    var title: String {
+        switch self {
+        case .nori: "Nori (cat)"
+        case .bolt: "Bolt (robot)"
+        case .quackers: "Quackers (rubber duck)"
+        case .sage: "Sage (owl)"
+        case .nova: "Nova (astronaut)"
+        }
+    }
 }
 
 /// Builds one character's scene and animates it every frame from the current mood.
@@ -37,12 +46,19 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
     private var tints: [SCNMaterial] = []
     /// Character-specific motion on top of the shared poses (e.g. Nori's tail).
     private var extra: ((CGFloat, Mood) -> Void)?
+    /// Turned a little sideways (the duck faces right).
+    private var baseYaw: CGFloat = 0
+    /// How far the head turns while watching agents work (the owl turns further).
+    private var headTurn: CGFloat = 0.35
 
     init(character: BuddyCharacterKind) {
         super.init()
         switch character {
         case .nori: buildNori()
         case .bolt: buildBolt()
+        case .quackers: buildQuackers()
+        case .sage: buildSage()
+        case .nova: buildNova()
         }
         scene.rootNode.addChildNode(rig)
         buildStudio()
@@ -184,6 +200,163 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         extra = { t, mood in
             let speed: CGFloat = mood == .working ? 9 : mood == .celebrating ? 12 : 2.4
             tail.eulerAngles = SCNVector3(0, sin(t * speed * 0.5) * 0.2, sin(t * speed) * 0.28)
+        }
+    }
+
+    // MARK: Quackers (rubber duck)
+
+    private func buildQuackers() {
+        let plastic = pbr(0xFFC928, rough: 0.2, clearcoat: 1)
+        let beak = pbr(0xFF8A1F, rough: 0.28, clearcoat: 0.9)
+        let cap = pbr(0x5B8CFF, rough: 0.3, clearcoat: 0.8)
+        let ink = pbr(0x0D0C14, rough: 0.06, clearcoat: 1)
+        let white = pbr(0xFFFFFF, rough: 0.15)
+        tints = [cap]
+        baseYaw = -0.62
+
+        rig.addChildNode(sphere(0.8, plastic, at: SCNVector3(0, 0.55, 0), scale: SCNVector3(1.12, 0.68, 0.85)))
+        rig.addChildNode(node(SCNCone(topRadius: 0, bottomRadius: 0.28, height: 0.5), plastic,
+                              at: SCNVector3(-0.86, 0.82, 0), euler: SCNVector3(0, 0, 2.3)))
+        let wingL = SCNNode(), wingR = SCNNode()
+        for (wing, z) in [(wingL, CGFloat(0.62)), (wingR, CGFloat(-0.62))] {
+            wing.position = SCNVector3(-0.05, 0.75, z)
+            wing.addChildNode(sphere(0.32, plastic, at: SCNVector3(-0.05, -0.05, 0), scale: SCNVector3(1.25, 0.55, 0.28)))
+            rig.addChildNode(wing)
+        }
+        head.position = SCNVector3(0.45, 1.25, 0)
+        head.addChildNode(sphere(0.46, plastic, at: SCNVector3(0, 0, 0)))
+        head.addChildNode(sphere(0.22, beak, at: SCNVector3(0.45, -0.06, 0), scale: SCNVector3(1.45, 0.4, 1)))
+        head.addChildNode(sphere(0.2, beak, at: SCNVector3(0.42, -0.14, 0), scale: SCNVector3(1.3, 0.3, 0.9)))
+        head.addChildNode(sphere(0.31, cap, at: SCNVector3(0, 0.33, 0), scale: SCNVector3(1, 0.62, 1)))
+        head.addChildNode(node(SCNCylinder(radius: 0.3, height: 0.04), cap, at: SCNVector3(0.18, 0.31, 0),
+                               scale: SCNVector3(1.25, 1, 1)))
+        for z: CGFloat in [0.21, -0.21] {
+            eyes.addChildNode(sphere(0.07, ink, at: SCNVector3(0.33, 0.1, z), scale: SCNVector3(1, 1.3, 1)))
+            eyes.addChildNode(sphere(0.02, white, at: SCNVector3(0.38, 0.15, z * 1.08)))
+        }
+        happy.addChildNode(happyEye(ink, at: SCNVector3(0.36, 0.08, 0.24), radius: 0.07))
+        finishHead()
+
+        // It floats on a little pond.
+        let water = SCNMaterial()
+        water.lightingModel = .physicallyBased
+        water.diffuse.contents = NSColor(0x67BFE9)
+        water.roughness.contents = 0.08
+        water.clearCoat.contents = 1
+        water.transparency = 0.62
+        let pond = node(SCNCylinder(radius: 1.35, height: 0.02), water, at: SCNVector3(0, 0.3, 0))
+        pond.castsShadow = false
+        scene.rootNode.addChildNode(pond)
+
+        extra = { [unowned self] t, mood in
+            let flap: CGFloat = mood == .working ? sin(t * 16) * 0.35 : mood == .celebrating ? sin(t * 22) * 0.6 : sin(t * 2) * 0.05
+            wingL.eulerAngles = SCNVector3(-abs(flap), 0, 0)
+            wingR.eulerAngles = SCNVector3(abs(flap), 0, 0)
+            pond.position = SCNVector3(0, 0.3 + sin(t * 1.6) * 0.015, 0)
+            if mood != .celebrating {
+                let p = self.rig.position
+                self.rig.position = SCNVector3(p.x, p.y + sin(t * (mood == .working ? 7 : 1.8)) * 0.03, p.z)
+            }
+            if mood == .idle || mood == .stretching {
+                let e = self.rig.eulerAngles
+                self.rig.eulerAngles = SCNVector3(e.x, e.y, e.z + sin(t * 1.4) * 0.05)
+            }
+        }
+    }
+
+    // MARK: Sage (owl)
+
+    private func buildSage() {
+        let feather = pbr(0x86644A, rough: 0.88)
+        let belly = pbr(0xEADBC3, rough: 0.92)
+        let disc = pbr(0xFAF6EE, rough: 0.6)
+        let iris = pbr(0x5B8CFF, rough: 0.12, clearcoat: 1)
+        let beak = pbr(0xF2A33A, rough: 0.35, clearcoat: 0.4)
+        let ink = pbr(0x0D0C14, rough: 0.06, clearcoat: 1)
+        let white = pbr(0xFFFFFF, rough: 0.15)
+        tints = [iris]
+        headTurn = 0.75 // owls turn their heads a long way
+
+        rig.addChildNode(sphere(0.72, feather, at: SCNVector3(0, 0.9, 0), scale: SCNVector3(1, 1.12, 0.9)))
+        rig.addChildNode(sphere(0.5, belly, at: SCNVector3(0, 0.8, 0.4), scale: SCNVector3(1, 1.2, 0.55)))
+        for x: CGFloat in [-0.2, 0.2] {
+            for dx: CGFloat in [-0.07, 0, 0.07] {
+                rig.addChildNode(cylinder(0.025, 0.16, beak, at: SCNVector3(x + dx, 0.06, 0.32),
+                                          euler: SCNVector3(CGFloat.pi / 2.4, 0, dx * 3)))
+            }
+        }
+        // Wings hang from the shoulders (they act as the arms).
+        for (wing, s) in [(armL, CGFloat(-1)), (armR, CGFloat(1))] {
+            wing.position = SCNVector3(s * 0.62, 1.3, 0)
+            wing.addChildNode(sphere(0.3, feather, at: SCNVector3(s * 0.04, -0.34, 0), scale: SCNVector3(0.55, 1.25, 0.8)))
+            rig.addChildNode(wing)
+        }
+        head.position = SCNVector3(0, 1.75, 0)
+        head.addChildNode(sphere(0.58, feather, at: SCNVector3(0, 0, 0), scale: SCNVector3(1.12, 0.84, 0.9)))
+        for s: CGFloat in [-1, 1] {
+            head.addChildNode(node(SCNCone(topRadius: 0, bottomRadius: 0.13, height: 0.34), feather,
+                                   at: SCNVector3(s * 0.42, 0.46, 0.08), euler: SCNVector3(0, 0, -s * 0.5)))
+            head.addChildNode(sphere(0.27, disc, at: SCNVector3(s * 0.25, 0.06, 0.48), scale: SCNVector3(1, 1, 0.4)))
+        }
+        head.addChildNode(node(SCNCone(topRadius: 0, bottomRadius: 0.07, height: 0.2), beak,
+                               at: SCNVector3(0, -0.12, 0.6), euler: SCNVector3(CGFloat.pi * 0.92, 0, 0)))
+        for x: CGFloat in [-0.25, 0.25] {
+            eyes.addChildNode(sphere(0.14, iris, at: SCNVector3(x, 0.06, 0.56), scale: SCNVector3(1, 1, 0.5)))
+            eyes.addChildNode(sphere(0.07, ink, at: SCNVector3(x, 0.06, 0.62), scale: SCNVector3(1, 1, 0.5)))
+            eyes.addChildNode(sphere(0.026, white, at: SCNVector3(x + 0.045, 0.11, 0.65)))
+            happy.addChildNode(happyEye(ink, at: SCNVector3(x, 0.03, 0.62), radius: 0.09))
+        }
+        finishHead()
+    }
+
+    // MARK: Nova (astronaut)
+
+    private func buildNova() {
+        let suit = pbr(0xF4F6FB, rough: 0.62)
+        let helmet = pbr(0xF8F9FD, rough: 0.3, clearcoat: 1)
+        let seam = pbr(0xC5CCDC, rough: 0.6)
+        let visor = pbr(0x18203F, metal: 1, rough: 0.04)
+        let moodGlow = glow(0x5B8CFF)
+        let glove = pbr(0x5B8CFF, rough: 0.45)
+        let eyeGlow = glow(0x8DF3FF)
+        tints = [moodGlow, glove]
+
+        rig.addChildNode(node(SCNBox(width: 0.8, height: 0.8, length: 0.36, chamferRadius: 0.08), seam,
+                              at: SCNVector3(0, 0.98, -0.42)))
+        for x: CGFloat in [-0.2, 0.2] {
+            rig.addChildNode(cylinder(0.15, 0.4, suit, at: SCNVector3(x, 0.32, 0)))
+            rig.addChildNode(sphere(0.18, seam, at: SCNVector3(x, 0.1, 0.05), scale: SCNVector3(1, 0.6, 1.3)))
+        }
+        rig.addChildNode(sphere(0.55, suit, at: SCNVector3(0, 0.88, 0), scale: SCNVector3(1, 1.05, 0.85)))
+        rig.addChildNode(node(SCNBox(width: 0.36, height: 0.22, length: 0.06, chamferRadius: 0.02), seam,
+                              at: SCNVector3(0, 0.96, 0.46)))
+        rig.addChildNode(sphere(0.045, moodGlow, at: SCNVector3(-0.08, 0.96, 0.5)))
+        for (arm, x) in [(armL, CGFloat(-0.56)), (armR, CGFloat(0.56))] {
+            arm.position = SCNVector3(x, 1.14, 0)
+            arm.addChildNode(cylinder(0.13, 0.45, suit, at: SCNVector3(0, -0.25, 0)))
+            arm.addChildNode(sphere(0.15, glove, at: SCNVector3(0, -0.52, 0)))
+            rig.addChildNode(arm)
+        }
+        head.position = SCNVector3(0, 1.78, 0)
+        head.addChildNode(sphere(0.62, helmet, at: SCNVector3(0, 0, 0)))
+        head.addChildNode(sphere(0.5, visor, at: SCNVector3(0, -0.02, 0.24), scale: SCNVector3(1.02, 0.78, 0.84)))
+        head.addChildNode(node(SCNTorus(ringRadius: 0.47, pipeRadius: 0.035), moodGlow, at: SCNVector3(0, -0.02, 0.52),
+                               scale: SCNVector3(1.1, 1, 0.84), euler: SCNVector3(CGFloat.pi / 2, 0, 0)))
+        head.addChildNode(cylinder(0.02, 0.32, seam, at: SCNVector3(0.34, 0.64, 0), euler: SCNVector3(0, 0, -0.4)))
+        head.addChildNode(sphere(0.07, moodGlow, at: SCNVector3(0.42, 0.8, 0)))
+        for x: CGFloat in [-0.17, 0.17] {
+            eyes.addChildNode(sphere(0.06, eyeGlow, at: SCNVector3(x, 0.03, 0.66), scale: SCNVector3(1, 1.4, 0.4)))
+            happy.addChildNode(happyEye(eyeGlow, at: SCNVector3(x, 0, 0.67), radius: 0.07))
+        }
+        finishHead()
+
+        // Zero gravity: drifts up and down, gently turning.
+        extra = { [unowned self] t, mood in
+            guard mood != .celebrating else { return }
+            let p = self.rig.position
+            self.rig.position = SCNVector3(p.x, p.y + 0.18 + sin(t * (mood == .working ? 3 : 1.2)) * 0.08, p.z)
+            let e = self.rig.eulerAngles
+            self.rig.eulerAngles = SCNVector3(e.x, e.y, e.z + sin(t * 0.9) * 0.07)
         }
     }
 
@@ -355,7 +528,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             y = abs(sin(t * 8)) * 0.035
             fwdL = -0.95 + sin(t * 16) * 0.28
             fwdR = -0.95 + sin(t * 16 + .pi) * 0.28
-            headYaw = sin(t * 2.4) * 0.35; headPitch = 0.12
+            headYaw = sin(t * 2.4) * headTurn; headPitch = 0.12
         case .waiting:
             roll = sin(t * 2.2) * 0.12
             outR = 2.5 + sin(t * 7) * 0.15
@@ -403,7 +576,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         }
 
         rig.position = SCNVector3(0, y, 0)
-        rig.eulerAngles = SCNVector3(0, yaw, roll)
+        rig.eulerAngles = SCNVector3(0, yaw + baseYaw, roll)
         rig.scale = scale
         head.eulerAngles = SCNVector3(headPitch, headYaw, headRoll)
         armL.eulerAngles = SCNVector3(fwdL, 0, -outL)

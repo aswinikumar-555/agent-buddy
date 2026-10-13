@@ -38,10 +38,10 @@ enum DocsRenderer {
         let moods: [(Mood, String)] = [(.idle, "Idle"), (.working, "Working"), (.waiting, "Needs you"),
                                        (.celebrating, "Done!"), (.stretching, "Break time")]
         let grid = VStack(alignment: .leading, spacing: 18) {
-            ForEach([BuddyCharacterKind.nori, .bolt]) { kind in
+            ForEach(BuddyCharacterKind.allCases) { kind in
                 HStack(spacing: 10) {
-                    Text(kind == .nori ? "Nori" : "Bolt").font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Palette.text).frame(width: 54, alignment: .leading)
+                    Text(kind.name).font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Palette.text).frame(width: 84, alignment: .leading)
                     ForEach(moods, id: \.1) { mood, label in
                         tile(kind, mood: mood, activity: nil, label: label)
                     }
