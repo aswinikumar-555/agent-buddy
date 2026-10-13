@@ -119,6 +119,7 @@ To update later: `cd ~/agent-buddy && git pull && bash install.sh`.
 | Move the buddy | Drag it |
 | Make the buddy bigger or smaller | ⚙︎ → Bigger / Smaller |
 | Switch between the cat and the robot | ⚙︎ → Character |
+| Light or dark panel, or another color scheme | ⚙︎ → Theme |
 | Answer agents from the buddy | Turn on **Remote** in the panel header |
 | Message an agent | Click the agent in the panel, type, send |
 | Hold all alerts | ⚙︎ → Nap |
@@ -131,6 +132,12 @@ The panel has four tabs: **Agents**, **Code** (PRs, local stack, deploys, errors
   <img src="docs/panel-minimized.png" width="300" alt="The minimized panel: just the number tiles and status pills">
 </p>
 <p align="center"><sub>Left: the <b>Me</b> tab. Right: the panel minimized to just the numbers and status.</sub></p>
+
+### Themes
+
+Pick a look for the panel with ⚙︎ → **Theme**: **Midnight**, **Daylight**, **Ocean** or **Sunset**, or **Auto** to follow your Mac's light/dark setting.
+
+<p align="center"><img src="docs/themes.png" width="900" alt="The panel in four themes: Midnight (dark grey), Daylight (light), Ocean (navy) and Sunset (warm brown)"></p>
 
 ---
 
