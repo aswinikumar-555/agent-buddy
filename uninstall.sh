@@ -17,6 +17,7 @@ if os.path.exists(p):
                      if not any("buddy-hook" in h.get("command", "") for h in g.get("hooks", []))]
         if not hooks[ev]: del hooks[ev]
     if not hooks: s.pop("hooks", None)
+    if "buddy-hook" in s.get("statusLine", {}).get("command", ""): s.pop("statusLine")
     with open(p, "w") as f: json.dump(s, f, indent=2)
 PY
 # Codex hooks, the buddy command, and the CLAUDE.md / AGENTS.md section

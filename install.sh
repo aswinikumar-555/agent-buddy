@@ -49,6 +49,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Agent Buddy reads your calendar to give you a heads-up before meetings. Nothing leaves your Mac.</string>
 </dict></plist>
 EOF
 codesign --force -s - "$APP" >/dev/null 2>&1 || true
@@ -75,6 +76,11 @@ for ev in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Per
     if ev == "PreToolUse": entry["matcher"] = "Bash"   # only shell commands are checked for production
     groups.append(entry)
     hooks[ev] = groups
+# Status line: Claude Code passes your plan usage to it (left alone if you have your own).
+if not s.get("statusLine"):
+    s["statusLine"] = {"type": "command", "command": cmd + " statusline"}
+elif "buddy-hook" not in s["statusLine"].get("command", ""):
+    print("  · You have your own status line, so plan usage isn't shown. To add it, pipe into: " + cmd + " statusline")
 with open(p, "w") as f: json.dump(s, f, indent=2)
 PY
 

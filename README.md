@@ -2,7 +2,7 @@
 
 **A 3D desktop buddy for your Mac that watches your AI coding agents, your deploys and your dev stack, and tells you when something needs you.**
 
-You start Claude Code or Codex on a few tasks, switch to something else, and lose track. Agent Buddy sits in the corner of your screen as a small 3D cat (or robot), keeps an eye on everything, and acts it out: it types while agents work, raises a paw when one needs you, and jumps when a task is done. Click it for the full picture.
+You start Claude Code or Codex on a few tasks, switch to something else, and lose track. Agent Buddy sits in the corner of your screen as a small 3D character (a cat, robot, rubber duck, owl or astronaut), keeps an eye on everything, and acts it out: it types while agents work, raises a paw when one needs you, and jumps when a task is done. Click it for the full picture.
 
 Everything runs on your Mac. No account, no server, no tracking.
 
@@ -34,6 +34,7 @@ That's the whole install ([details](#install-on-your-mac)). It builds on your Ma
 - **Chat:** send a message to any agent from the buddy, whether it's working or idle.
 - **`buddy say "…"`:** any agent or script can put a message on your screen.
 - Alerts when an agent has been waiting on you too long, seems stuck, or you're running too many at once.
+- **Claude plan usage:** how much of your 5-hour and weekly limits you've used, with a nudge at 80% and 95%.
 - Works with agents in any terminal, and with [herdr](https://herdr.dev) panes.
 
 **Your code and cloud**
@@ -45,10 +46,15 @@ That's the whole install ([details](#install-on-your-mac)). It builds on your Ma
 - **Sites:** health checks for your staging and production URLs.
 - **Production warning:** a red **PROD** band when an agent runs a command against production or a production database tunnel is open.
 - **Housekeeping:** low disk space, huge log files, old git worktrees (it only reports; it never deletes).
+- **PR stats:** your last 7 days (merged, opened, reviewed, time to merge) and a merged-PR leaderboard for your repos.
 
 **Your day**
 - Reminders for water, breaks, lunch and sleep, acted out by the buddy (it eats, drinks and sleeps). Quiet while your microphone is in use.
 - Work hours: outside them, work alerts go quiet.
+- **Meetings:** a heads-up 5 minutes before each meeting in your Calendar app, with a **Join** button for Zoom, Meet or Teams links. Reminders stay quiet during meetings.
+- **To-do list:** add, tick off and clear to-dos in the panel. Agents can add to it with `buddy todo "…"`.
+- **Timesheet:** your time per project each day (the project you last gave an agent a prompt, plus meetings), for today or the week, copied as spreadsheet rows.
+- **Festivals:** the buddy dresses up on Diwali, Holi, Halloween, Christmas, New Year and Independence Day. Add your own days in the config.
 - End of day: a summary of what got done, ready to paste into standup, plus a note for tomorrow.
 - Nap: hold every alert for a while.
 
@@ -75,6 +81,12 @@ Each one acts out what's going on: idle, working, needs you, done, and break tim
 It acts out your day too: it eats at lunch, drinks when it's time for water, falls asleep at night, and wears a red **PROD** band when something touches production.
 
 <p align="center"><img src="docs/day.png" width="640" alt="Nori eating noodles at lunch, sipping a drink, sleeping with floating Zs, and wearing a red PROD badge"></p>
+
+### Festivals
+
+On a festival the buddy dresses up and says hello: diyas for **Diwali**, a Santa hat and a present for **Christmas**, a party hat for **New Year**, a witch's hat and a pumpkin for **Halloween**, the flag for **Independence Day** and **Republic Day**, and clouds of color for **Holi**. Turn it off with ⚙︎ → **Festival costumes**, or add your own days (see `festivals` under [Configuration](#configuration)).
+
+<p align="center"><img src="docs/festivals.png" width="900" alt="The buddies dressed up: Nori with diyas for Diwali, Bolt in a Santa hat with a present, Quackers in a party hat, Sage in a witch's hat with a pumpkin, Nova with the Indian flag, and Nori in clouds of Holi colors"></p>
 
 ---
 
@@ -128,20 +140,28 @@ To update later: `cd ~/agent-buddy && git pull && bash install.sh`.
 | Make the panel smaller | **⤡** in the panel header (minimize), or drag its top-left corner or edges |
 | Move the buddy | Drag it |
 | Make the buddy bigger or smaller | ⚙︎ → Bigger / Smaller |
-| Switch between the cat and the robot | ⚙︎ → Character |
+| Switch character | ⚙︎ → Character |
+| Add a to-do | Type it in **Me** → To-do, or run `buddy todo "Review #31"` |
+| Copy your timesheet | **Me** → Timesheet → Today or Week → Copy (pastes into a spreadsheet) |
+| Join your next meeting | Click the bubble or the meeting's status pill, or **Join** in **Me** → Meetings |
 | Light or dark panel, or another color scheme | ⚙︎ → Theme |
 | Answer agents from the buddy | Turn on **Remote** in the panel header |
 | Message an agent | Click the agent in the panel, type, send |
 | Hold all alerts | ⚙︎ → Nap |
 | Let an agent or script tell you something | `buddy say "Tests are green"` (add `--urgent` to keep it until dismissed) |
 
-The panel has four tabs: **Agents**, **Code** (PRs, local stack, deploys, errors), **Cloud** (sites, AWS ECS, Google Cloud Run, Codex cloud) and **Me** (reminders, today's summary, nap). The number tiles and status pills open the right tab.
+The panel has four tabs: **Agents**, **Code** (PRs, PR stats, local stack, deploys, errors), **Cloud** (sites, AWS ECS, Google Cloud Run, Codex cloud) and **Me** (meetings, to-dos, Claude plan usage, timesheet, reminders, today's summary, nap). The number tiles and status pills open the right tab.
 
 <p align="center">
-  <img src="docs/panel-me.png" width="270" alt="The Me tab: work time, water, lunch and sleep reminders, work hours, and today's summary with Copy for standup">
+  <img src="docs/panel-me.png" width="270" alt="The Me tab: upcoming meetings with a Join button, a to-do list, Claude plan usage bars for the 5-hour and weekly limits, a timesheet by project, and reminders">
+  <img src="docs/panel-code.png" width="300" alt="The Code tab: pull requests, then PR stats for 7 days (merged, opened, reviewed, time to merge) and a merged-PR leaderboard">
   <img src="docs/panel-minimized.png" width="300" alt="The minimized panel: just the number tiles and status pills">
 </p>
-<p align="center"><sub>Left: the <b>Me</b> tab. Right: the panel minimized to just the numbers and status.</sub></p>
+<p align="center"><sub>Left: the <b>Me</b> tab. Middle: the <b>Code</b> tab with PR stats. Right: the panel minimized to just the numbers and status.</sub></p>
+
+**Claude plan usage** comes from Claude Code's status line: `install.sh` sets the status line to show your model and usage (for example `Opus · 5h 42% · week 18%`) and pass it on to the buddy. If you already have your own status line, it's left alone; pipe the same input into `~/.agent-buddy/buddy-hook statusline` to add it.
+
+**Meetings** come from the macOS Calendar app, so add your work calendar there first (System Settings → Internet Accounts, e.g. Google). The first time, macOS asks to let Agent Buddy see your calendars.
 
 ### Themes
 
@@ -172,6 +192,8 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 | `sites` | Health checks: `{ "name", "url", "prod" }`. Any 2xx/3xx answer counts as up | none |
 | `prodEnvs` | Names that mean production (in cluster names, tunnels, stack envs) | `prod`, `production` |
 | `prodPatterns` | Regexes for shell commands that touch production (secret names, prod hosts, …) | a few generic ones |
+| `meetings` / `meetingHeadsUpMinutes` | Meeting heads-up from the Calendar app, and how many minutes before | on / 5 |
+| `festivals` | Your own special days: `{ "date": "06-12", "name": "My birthday", "greeting": "🎂 Happy birthday!", "costume": "partyHat" }`. `date` is `MM-dd` (every year) or `yyyy-MM-dd`; `costume` is `partyHat`, `santaHat`, `witchHat`, `diya`, `holi` or `flag`; add `"days": 2` for longer ones | built-in festivals |
 
 ### The local dev stack monitor
 
@@ -181,10 +203,10 @@ This watches projects that start their services with a `scripts/dev/ports.sh` po
 
 ## Privacy and what it touches
 
-- **Local only.** No server and no telemetry. Its data lives in `~/.agent-buddy/` (events, settings, notes, daily summaries).
-- **Network calls happen only through tools you already use and only for features you configure:** `gh` (PRs, deploys), `aws` (read-only: `sts get-caller-identity`, ECS describe and list calls), `gcloud` (read-only: `auth print-access-token`, `run services list`), `codex cloud list`, and plain GET requests to the `sites` you list.
+- **Local only.** No server and no telemetry. Its data lives in `~/.agent-buddy/` (events, settings, notes, to-dos, daily summaries and timesheets). Your calendar is read on your Mac and never leaves it.
+- **Network calls happen only through tools you already use and only for features you configure:** `gh` (PRs, deploys, PR stats), `aws` (read-only: `sts get-caller-identity`, ECS describe and list calls), `gcloud` (read-only: `auth print-access-token`, `run services list`), `codex cloud list`, and plain GET requests to the `sites` you list.
 - **It never deploys, scales, deletes or changes anything** in your cloud accounts or repos. The production warning only warns.
-- Files it changes outside its own folder: `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` (a marked section), the `buddy` command in `/opt/homebrew/bin` (or `~/.local/bin`), and a login item in `~/Library/LaunchAgents`. The uninstaller removes all of them.
+- Files it changes outside its own folder: `~/.claude/settings.json` (hooks, and the status line if you don't have one), `~/.codex/hooks.json`, `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` (a marked section), the `buddy` command in `/opt/homebrew/bin` (or `~/.local/bin`), and a login item in `~/Library/LaunchAgents`. The uninstaller removes all of them.
 
 ---
 

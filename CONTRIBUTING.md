@@ -40,6 +40,9 @@ swiftc -O -swift-version 5 Sources/Hook/main.swift -o build/buddy-hook
 | `Sources/App/Buddy3D.swift` | The 3D characters and their moods |
 | `Sources/App/Chat.swift` | Chatting with an agent |
 | `Sources/App/Herdr.swift`, `Stack.swift`, `Cloud.swift`, `Gcp.swift`, `Aws.swift`, `Watch.swift`, `Extras.swift`, `Deploys.swift` | One feature area each (herdr, local dev stack, ECS and Codex cloud, Google Cloud, AWS login, sites/production/logs/day summary, PRs/disk, deploys and settings) |
+| `Sources/App/Planner.swift`, `PlannerViews.swift` | To-dos, Claude plan usage, the timesheet and PR stats, and their panel cards |
+| `Sources/App/Meetings.swift` | Meetings from the Calendar app |
+| `Sources/App/Festivals.swift` | Festival dates (the costumes are drawn in `Buddy3D.swift`) |
 | `Sources/App/DocsRenderer.swift` | Draws the README images |
 | `Sources/Hook/main.swift` | The small program Claude Code and Codex run for each hook event |
 
