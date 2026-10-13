@@ -58,9 +58,19 @@ All alerts appear in the buddy's speech bubble. Mac notifications are off by def
 
 ## Pick your buddy
 
-Two 3D characters, lit and shaded on your Mac: **Nori** the cat and **Bolt** the chrome robot. Switch with ⚙︎ → Character. Each acts out what's going on: idle, working, needs you, done, and break time. Its collar (or antenna and ears) glows in the mood's color.
+Five 3D characters, lit and shaded on your Mac. Switch with ⚙︎ → Character:
 
-<p align="center"><img src="docs/characters.png" width="820" alt="Nori the cat and Bolt the robot in five moods: idle, working with spinning gears, needs you with a question mark, done with confetti, and break time stretching"></p>
+| | |
+|---|---|
+| **Nori** | a cat whose collar glows in the mood's color |
+| **Bolt** | a chrome robot with a glowing face, antenna and ears |
+| **Quackers** | a rubber duck floating on a little pond, flapping its wings while agents work |
+| **Sage** | an owl that turns its head right round to watch your agents |
+| **Nova** | an astronaut drifting in zero gravity, with a glowing visor ring |
+
+Each one acts out what's going on: idle, working, needs you, done, and break time. Its accent color (collar, ears, cap, eyes or visor) follows the mood.
+
+<p align="center"><img src="docs/characters.png" width="820" alt="Nori the cat, Bolt the robot, Quackers the rubber duck, Sage the owl and Nova the astronaut in five moods: idle, working with spinning gears, needs you with a question mark, done with confetti, and break time stretching"></p>
 
 It acts out your day too: it eats at lunch, drinks when it's time for water, falls asleep at night, and wears a red **PROD** band when something touches production.
 
