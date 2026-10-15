@@ -1,10 +1,21 @@
-# Agent Buddy
+<p align="center"><img src="docs/hero.jpg" alt="Agent Buddy: a 3D cat in the corner of a Mac desktop with its panel open, showing a permission request with Allow and Deny, running agents with their tasks, and a bubble saying all 214 tests pass"></p>
 
-[![Build](https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml/badge.svg)](https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/aswinikumar-555/agent-buddy)](https://github.com/aswinikumar-555/agent-buddy/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+<h1 align="center">Agent Buddy</h1>
 
-**A 3D desktop buddy for your Mac that watches your AI coding agents, your deploys and your dev stack, and tells you when something needs you.**
+<p align="center"><b>A 3D desktop buddy for your Mac that watches your AI coding agents, your code and your cloud,<br>and tells you the moment something needs you.</b></p>
+
+<p align="center">
+  <a href="https://github.com/aswinikumar-555/agent-buddy/releases/latest"><img src="https://img.shields.io/badge/Download_for_Mac-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac"></a>
+  <a href="#install-on-your-mac"><img src="https://img.shields.io/badge/Build_from_source-5B8CFF?style=for-the-badge&logo=swift&logoColor=white" alt="Build from source"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml"><img src="https://github.com/aswinikumar-555/agent-buddy/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/aswinikumar-555/agent-buddy/releases/latest"><img src="https://img.shields.io/github/v/release/aswinikumar-555/agent-buddy" alt="Release"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <a href="https://github.com/aswinikumar-555/agent-buddy/stargazers"><img src="https://img.shields.io/github/stars/aswinikumar-555/agent-buddy?style=social" alt="Stars"></a>
+</p>
 
 You start Claude Code or Codex on a few tasks, switch to something else, and lose track. Agent Buddy sits in the corner of your screen as a small 3D character (a cat, robot, rubber duck, owl or astronaut), keeps an eye on everything, and acts it out: it types while agents work, raises a paw when one needs you, and jumps when a task is done. Click it for the full picture.
 
@@ -62,7 +73,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 - Reminders for water, breaks, lunch and sleep, acted out by the buddy (it eats, drinks and sleeps). Quiet while your microphone is in use.
 - Work hours: outside them, work alerts go quiet.
 - **Meetings:** a heads-up 5 minutes before each meeting in your Calendar app, with a **Join** button for Zoom, Meet or Teams links. Reminders stay quiet during meetings.
-- **To-do list:** add, tick off and clear to-dos in the panel. Agents can add to it with `buddy todo "…"`.
+- **To-do list:** add, tick off and clear to-dos in the panel. Give one a time (the clock button, or just type "call Ravi at 5pm" / "deploy tomorrow 9:30am") and the buddy reminds you then, with snooze. Agents can add to it with `buddy todo "…"`.
 - **Quick capture:** press **⌥Space** anywhere, type, press Return: it's on your to-do list. Start with `@project` to send it to that project's agent instead.
 - **Timesheet:** your time per project each day (the project you last gave an agent a prompt, plus meetings), for today or the week, copied as spreadsheet rows.
 - **Festivals:** the buddy dresses up on Diwali, Holi, Halloween, Christmas, New Year and Independence Day. Add your own days in the config.
@@ -171,6 +182,7 @@ To update later: `cd ~/agent-buddy && git pull && bash install.sh`.
 | Make the buddy bigger or smaller | ⚙︎ → Bigger / Smaller |
 | Switch character | ⚙︎ → Character |
 | Add a to-do | Type it in **Me** → To-do, or run `buddy todo "Review #31"` |
+| Get reminded to do it at a time | End it with a time ("… at 5pm", "… tomorrow 9am"), or click the clock next to it. Click a to-do's time to snooze or change it |
 | Copy your timesheet | **Me** → Timesheet → Today or Week → Copy (pastes into a spreadsheet) |
 | Join your next meeting | Click the bubble or the meeting's status pill, or **Join** in **Me** → Meetings |
 | Jot something down from anywhere | **⌥Space**, type, Return (`@shop-web run the tests` sends it to that agent) |
@@ -198,7 +210,11 @@ The panel has four tabs: **Agents**, **Code** (PRs, PR stats, local stack, deplo
 
 ### Themes
 
-Pick a look for the panel with ⚙︎ → **Theme**: **Midnight**, **Daylight**, **Ocean** or **Sunset**, or **Auto** to follow your Mac's light/dark setting.
+Pick a look for the panel with ⚙︎ → **Theme**: **Midnight**, **Daylight**, **Ocean** or **Sunset**, **Auto** to follow your Mac's light/dark setting, or **Apple (iOS style)**.
+
+**Apple (iOS style)** looks like your iPhone: frosted glass over your desktop, Control Center style tiles, Settings style colored icons, and Apple's own colors in light and dark (it follows your Mac).
+
+<p align="center"><img src="docs/panel-apple.png" width="760" alt="The Apple (iOS style) theme in light and dark: frosted panels with Control Center style tiles, colored icon squares for each section, an iOS segmented control, and capsule buttons"></p>
 
 <p align="center"><img src="docs/themes.png" width="900" alt="The panel in four themes: Midnight (dark grey), Daylight (light), Ocean (navy) and Sunset (warm brown)"></p>
 
