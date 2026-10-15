@@ -90,8 +90,8 @@ struct PanelTheme {
     /// The chosen theme. "Auto" picks Midnight or Daylight, and "Apple" Apple Light or Dark,
     /// from the Mac's appearance.
     nonisolated(unsafe) static var choice = UserDefaults.standard.string(forKey: "panelTheme") ?? "Auto"
-    /// The Apple theme's glass: "Clear" (see-through), "Balanced" or "Frosted".
-    nonisolated(unsafe) static var glass = UserDefaults.standard.string(forKey: "glassClarity") ?? "Balanced"
+    /// The Apple theme's panel: "Solid" (nothing shows through), or glass: "Clear", "Balanced", "Frosted".
+    nonisolated(unsafe) static var glass = UserDefaults.standard.string(forKey: "glassClarity") ?? "Solid"
     static var current: PanelTheme {
         if choice == "Apple" { return macIsDark ? appleDark : appleLight }
         if let t = all.first(where: { $0.name == choice }) { return t }
@@ -136,13 +136,16 @@ enum Palette {
         switch PanelTheme.glass {
         case "Clear": return dark ? 0.2 : 0.12
         case "Frosted": return dark ? 0.62 : 0.55
+        case "Solid": return 1
         default: return dark ? 0.36 : 0.3
         }
     }
+    /// The Apple theme's panel is opaque: no glass behind it.
+    static var solidPanel: Bool { PanelTheme.glass == "Solid" }
     static var cardOpacity: Double {
         switch PanelTheme.glass {
         case "Clear": return scheme == .dark ? 0.32 : 0.45
-        case "Frosted": return scheme == .dark ? 0.85 : 0.92
+        case "Frosted", "Solid": return scheme == .dark ? 0.85 : 0.92
         default: return scheme == .dark ? 0.6 : 0.72
         }
     }
@@ -169,7 +172,7 @@ extension View {
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, fallback: Color? = nil, clear: Bool = false) -> some View {
         #if compiler(>=6.2)
-        if #available(macOS 26, *), !DocsRenderer.active {
+        if #available(macOS 26, *), !DocsRenderer.active, !Palette.solidPanel {
             let base = clear ? Glass.clear : Glass.regular
             let glass = tint.map { base.tint($0) } ?? base
             self.glassEffect(interactive ? glass.interactive() : glass, in: shape)
@@ -195,7 +198,9 @@ struct PanelBackground: View {
     var radius: CGFloat = 20
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Palette.isApple ? radius + 8 : radius, style: .continuous)
-        if Palette.isApple {
+        if Palette.isApple && Palette.solidPanel {
+            shape.fill(Palette.bg)   // opaque: nothing behind shows through, nothing to switch on when it opens
+        } else if Palette.isApple {
             if Self.hasLiquidGlass && !DocsRenderer.active {
                 // Glass, with a veil of the theme color so text stays readable over a busy desktop.
                 Color.clear.liquidGlass(shape, clear: Palette.clearGlass).overlay(shape.fill(Palette.bg.opacity(Palette.veil)))
@@ -598,6 +603,7 @@ struct TaskListView: View {
             }
             if tracker.panelTheme == "Apple" {
                 Picker("Glass", selection: $tracker.glassClarity) {
+                    Text("Solid (no glass)").tag("Solid")
                     Text("Clear (see-through)").tag("Clear")
                     Text("Balanced").tag("Balanced")
                     Text("Frosted").tag("Frosted")
