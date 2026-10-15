@@ -146,14 +146,27 @@ struct FrostedGlass: NSViewRepresentable {
 extension View {
     /// Apple's Liquid Glass (macOS 26, as in iOS 26) in `shape`, optionally tinted and
     /// reacting to the pointer. Older macOS, and the README images, get `fallback` instead.
+    /// (Built with an older Xcode, without the macOS 26 SDK, it's always the fallback.)
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, fallback: Color? = nil) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *), !DocsRenderer.active {
             let glass = tint.map { Glass.regular.tint($0) } ?? Glass.regular
             self.glassEffect(interactive ? glass.interactive() : glass, in: shape)
         } else {
             self.background(shape.fill(fallback ?? tint ?? Palette.raised))
         }
+        #else
+        self.background(shape.fill(fallback ?? tint ?? Palette.raised))
+        #endif
+    }
+
+    /// Liquid Glass is there (macOS 26, built with Xcode 26 or later).
+    static var hasLiquidGlass: Bool {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *) { return true }
+        #endif
+        return false
     }
 }
 
@@ -163,7 +176,7 @@ struct PanelBackground: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Palette.isApple ? radius + 8 : radius, style: .continuous)
         if Palette.isApple {
-            if #available(macOS 26, *), !DocsRenderer.active {
+            if Self.hasLiquidGlass && !DocsRenderer.active {
                 // Glass, with a veil of the theme color so text stays readable over a busy desktop.
                 Color.clear.liquidGlass(shape).overlay(shape.fill(Palette.bg.opacity(Palette.scheme == .dark ? 0.62 : 0.55)))
             } else if !DocsRenderer.active {
