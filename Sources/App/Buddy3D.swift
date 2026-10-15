@@ -65,6 +65,27 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
     private var smoothGaze = CGPoint.zero
     private var walking: CGFloat = 0
 
+    /// Every number that makes up a pose, so a change of pose can blend instead of snap.
+    private struct Pose {
+        var y: CGFloat = 0, roll: CGFloat = 0, yaw: CGFloat = 0, sx: CGFloat = 1, sy: CGFloat = 1
+        var headYaw: CGFloat = 0, headPitch: CGFloat = 0, headRoll: CGFloat = 0
+        var outL: CGFloat = 0.14, outR: CGFloat = 0.14, fwdL: CGFloat = 0, fwdR: CGFloat = 0
+
+        func blended(to b: Pose, _ k: CGFloat) -> Pose {
+            func l(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * k }
+            // Turning: the short way round (a full spin ends where it started).
+            let dYaw = atan2(sin(b.yaw - yaw), cos(b.yaw - yaw))
+            return Pose(y: l(y, b.y), roll: l(roll, b.roll), yaw: yaw + dYaw * k, sx: l(sx, b.sx), sy: l(sy, b.sy),
+                        headYaw: l(headYaw, b.headYaw), headPitch: l(headPitch, b.headPitch), headRoll: l(headRoll, b.headRoll),
+                        outL: l(outL, b.outL), outR: l(outR, b.outR), fwdL: l(fwdL, b.fwdL), fwdR: l(fwdR, b.fwdR))
+        }
+    }
+    /// The pose being shown, what it's blending from, and since when.
+    private var shownPose = Pose()
+    private var blendFrom = Pose()
+    private var blendStart: CGFloat = -10
+    private var poseKey = ""
+
     init(character: BuddyCharacterKind) {
         super.init()
         switch character {
@@ -834,6 +855,7 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
         }
 
         var eyesClosed = false, happyOverride: Bool?
+        var trick = -1
 
         // Idle: walk along the screen, or now and then do a little trick.
         if mood == .idle && activity == nil {
@@ -850,7 +872,8 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
                 let cycle = t.truncatingRemainder(dividingBy: period)
                 if cycle < 3 {
                     let p = cycle / 3, bump = sin(p * .pi)
-                    switch Int(t / period) % 5 {
+                    trick = Int(t / period) % 5
+                    switch trick {
                     case 0: yaw = (1 - cos(p * .pi)) * .pi                       // spin round (chasing its tail)
                     case 1: outL = 2.7 * bump; outR = outL                        // big stretch
                         scale = SCNVector3(1, 1 + 0.05 * bump, 1); happyOverride = true
@@ -900,12 +923,26 @@ final class Buddy3DScene: NSObject, SCNSceneRendererDelegate {
             break
         }
 
-        rig.position = SCNVector3(0, y, 0)
-        rig.eulerAngles = SCNVector3(0, yaw + baseYaw, roll)
-        rig.scale = scale
-        head.eulerAngles = SCNVector3(headPitch, headYaw, headRoll)
-        armL.eulerAngles = SCNVector3(fwdL, 0, -outL)
-        armR.eulerAngles = SCNVector3(fwdR, 0, outR)
+        // A new pose (mood, activity, trick, walking) blends in over a third of a second.
+        let goal = Pose(y: y, roll: roll, yaw: yaw, sx: CGFloat(scale.x), sy: CGFloat(scale.y),
+                          headYaw: headYaw, headPitch: headPitch, headRoll: headRoll,
+                          outL: outL, outR: outR, fwdL: fwdL, fwdR: fwdR)
+        let key = "\(mood)|\(String(describing: activity))|\(trick)|\(walking)"
+        if key != poseKey {
+            if !poseKey.isEmpty { blendFrom = shownPose; blendStart = t }
+            poseKey = key
+        }
+        let p = min(1, max(0, (t - blendStart) / 0.35))
+        let ease = p * p * (3 - 2 * p)
+        let pose = p >= 1 ? goal : blendFrom.blended(to: goal, ease)
+        shownPose = pose
+
+        rig.position = SCNVector3(0, pose.y, 0)
+        rig.eulerAngles = SCNVector3(0, pose.yaw + baseYaw, pose.roll)
+        rig.scale = SCNVector3(pose.sx, pose.sy, pose.sx)
+        head.eulerAngles = SCNVector3(pose.headPitch, pose.headYaw, pose.headRoll)
+        armL.eulerAngles = SCNVector3(pose.fwdL, 0, -pose.outL)
+        armR.eulerAngles = SCNVector3(pose.fwdR, 0, pose.outR)
 
         let isHappy = happyOverride ?? (activity == nil && (mood == .celebrating || mood == .stretching))
         let blink = t.truncatingRemainder(dividingBy: 3.8) < 0.12
@@ -952,7 +989,7 @@ struct Buddy3DView: NSViewRepresentable {
         view.antialiasingMode = .multisampling4X
         view.rendersContinuously = true
         view.isPlaying = true
-        view.preferredFramesPerSecond = 30
+        view.preferredFramesPerSecond = 60
         context.coordinator.set(mood: mood, activity: activity)
         context.coordinator.set(costume: costume)
         context.coordinator.set(tricks: tricks, gaze: nil, walking: walking)
@@ -965,8 +1002,8 @@ struct Buddy3DView: NSViewRepresentable {
         context.coordinator.set(costume: costume)
         context.coordinator.set(tricks: tricks, gaze: context.coordinator.lastGaze, walking: walking)
         context.coordinator.followMouse(in: view, eyesFollow)
-        // Calm moods don't need full frame rate; saves battery.
-        view.preferredFramesPerSecond = mood == .idle ? 20 : 30
+        // Calm and still: 30 frames a second saves battery; anything moving gets 60 to look smooth.
+        view.preferredFramesPerSecond = mood == .idle && walking == 0 && !eyesFollow ? 30 : 60
     }
 }
 

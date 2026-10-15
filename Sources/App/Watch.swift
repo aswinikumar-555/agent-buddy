@@ -121,12 +121,26 @@ final class LogWatcher {
                 guard seen[sig] == nil else { continue }
                 seen[sig] = now
                 lastAlert[log.path] = now
-                found.append(LogError(stack: log.stack, service: log.service, line: oneLine(message, max: 220),
+                found.append(LogError(stack: log.stack, service: log.service, line: oneLine(LogWatcher.readable(message), max: 220),
                                       path: log.path, at: now))
                 break
             }
         }
         return found
+    }
+
+    /// A JSON log line ({"level": "WARNING", "logger": "app.services.x", "message": "…"}) as
+    /// "WARNING · x — …"; anything else unchanged.
+    static func readable(_ line: String) -> String {
+        guard let start = line.firstIndex(of: "{"),
+              let obj = try? JSONSerialization.jsonObject(with: Data(line[start...].utf8)) as? [String: Any] else { return line }
+        let level = (obj["level"] ?? obj["levelname"] ?? obj["severity"]) as? String
+        let logger = ((obj["logger"] ?? obj["name"]) as? String)?.split(separator: ".").last.map(String.init)
+        let message = (obj["message"] ?? obj["msg"] ?? obj["event"] ?? obj["error"]) as? String
+        guard let message else { return line }
+        let detail = [obj["exception"], obj["exc_info"], obj["error"]].compactMap { $0 as? String }.first { $0 != message }
+        let head = [level?.uppercased(), logger].compactMap { $0 }.joined(separator: " · ")
+        return (head.isEmpty ? "" : head + " — ") + message + (detail.map { ": " + oneLine($0, max: 120) } ?? "")
     }
 
     private func matches(_ line: String) -> Bool {

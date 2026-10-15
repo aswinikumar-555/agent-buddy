@@ -4,9 +4,7 @@ import SwiftUI
 
 private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 8) { content() }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.raised))
+        .panelCard()
 }
 
 private func timeText(_ d: Date) -> String {
@@ -65,7 +63,7 @@ struct MeetingsCard: View {
             }
             Spacer(minLength: 4)
             if m.joinURL != nil && until < 900 {
-                Button("Join") { tracker.joinMeeting(m) }.buttonStyle(.borderedProminent).controlSize(.small).tint(Palette.blue)
+                Button("Join") { tracker.joinMeeting(m) }.buttonStyle(ActionButtonStyle(color: Palette.blue, small: true))
             }
         }
     }
@@ -73,12 +71,27 @@ struct MeetingsCard: View {
 
 // MARK: - To-do list
 
+/// Quick times for a to-do: in 30 min, in an hour, this evening, tomorrow morning.
+private func quickTimes(_ now: Date) -> [(String, Date)] {
+    let cal = Calendar.current
+    var out: [(String, Date)] = [("In 30 min", now.addingTimeInterval(1800)), ("In 1 hour", now.addingTimeInterval(3600))]
+    if let six = cal.date(bySettingHour: 18, minute: 0, second: 0, of: now), six > now.addingTimeInterval(3600) {
+        out.append(("This evening, 6 PM", six))
+    }
+    if let nine = cal.date(bySettingHour: 9, minute: 0, second: 0, of: now), let tomorrow = cal.date(byAdding: .day, value: 1, to: nine) {
+        out.append(("Tomorrow, 9 AM", tomorrow))
+    }
+    return out
+}
+
 struct TodoCard: View {
     @ObservedObject var tracker: Tracker
     @ObservedObject var draft: CardDraft
 
     var body: some View {
+        let now = Date()
         let open = tracker.todos.filter { $0.done == nil }
+            .sorted { ($0.due ?? .distantFuture, $0.created) < ($1.due ?? .distantFuture, $1.created) }
         let done = tracker.todos.filter { $0.done != nil }.sorted { ($0.done ?? .distantPast) > ($1.done ?? .distantPast) }
         card {
             HStack {
@@ -93,41 +106,113 @@ struct TodoCard: View {
                 }
             }
             HStack(spacing: 6) {
-                TextField("Add a to-do…", text: $draft.text)
+                TextField("Add a to-do… (try \"call Ravi at 5pm\")", text: $draft.text)
                     .textFieldStyle(.roundedBorder).font(.system(size: 12))
                     .onSubmit(add)
+                timeMenu
                 Button(action: add) { Image(systemName: "plus") }
-                    .buttonStyle(.bordered).controlSize(.small)
+                    .buttonStyle(ActionButtonStyle(small: true))
                     .disabled(draft.text.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            ForEach(open + done.prefix(5)) { todo in row(todo) }
+            if let due = tracker.todoDue {
+                HStack(spacing: 6) {
+                    Image(systemName: "alarm").font(.system(size: 10))
+                    DatePicker("", selection: Binding(get: { due }, set: { tracker.todoDue = $0 }),
+                               displayedComponents: [.date, .hourAndMinute])
+                        .labelsHidden().datePickerStyle(.field).controlSize(.small)
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { tracker.todoDue = nil } } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundStyle(Palette.faint)
+                    }
+                    .buttonStyle(.plain).help("No time")
+                }
+                .foregroundStyle(Palette.blue)
+                .transition(.opacity)
+            }
+            ForEach(open + done.prefix(5)) { todo in row(todo, now: now) }
             if tracker.todos.isEmpty {
-                Text("Agents can add to it too: buddy todo \"…\"")
+                Text("Agents can add to it too: buddy todo \"…\" (add \"at 5pm\" for a reminder)")
                     .font(.system(size: 11)).foregroundStyle(Palette.faint)
             }
         }
     }
 
-    private func add() {
-        tracker.addTodo(draft.text)
-        draft.text = ""
+    /// The clock next to the field: pick when you want to do it.
+    private var timeMenu: some View {
+        Menu {
+            ForEach(quickTimes(Date()), id: \.0) { label, date in
+                Button(label) { withAnimation(.easeInOut(duration: 0.2)) { tracker.todoDue = date } }
+            }
+            Divider()
+            Button("Pick a time…") {
+                let next = Calendar.current.nextDate(after: Date(), matching: DateComponents(minute: 0), matchingPolicy: .nextTime) ?? Date()
+                withAnimation(.easeInOut(duration: 0.2)) { tracker.todoDue = next }
+            }
+            if tracker.todoDue != nil {
+                Button("No time") { withAnimation(.easeInOut(duration: 0.2)) { tracker.todoDue = nil } }
+            }
+        } label: {
+            Image(systemName: tracker.todoDue == nil ? "alarm" : "alarm.fill")
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .foregroundStyle(tracker.todoDue == nil ? Palette.muted : Palette.blue)
+        .help("When do you want to do it? I'll remind you then.")
     }
 
-    private func row(_ todo: Todo) -> some View {
+    private func add() {
+        tracker.addTodo(draft.text, due: tracker.todoDue)
+        draft.text = ""
+        withAnimation(.easeInOut(duration: 0.2)) { tracker.todoDue = nil }
+    }
+
+    private func row(_ todo: Todo, now: Date) -> some View {
         let isDone = todo.done != nil
+        let late = todo.isLate(now)
         return HStack(alignment: .top, spacing: 8) {
             Button { tracker.toggleTodo(todo) } label: {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14))
-                    .foregroundStyle(isDone ? Palette.green : Palette.muted)
+                    .foregroundStyle(isDone ? Palette.green : late ? Palette.red : Palette.muted)
             }
             .buttonStyle(.plain)
-            Text(todo.text)
-                .font(.system(size: 13))
-                .strikethrough(isDone)
-                .foregroundStyle(isDone ? Palette.faint : Palette.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(todo.text)
+                    .font(.system(size: 13))
+                    .strikethrough(isDone)
+                    .foregroundStyle(isDone ? Palette.faint : Palette.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let due = todo.due, !isDone {
+                    // macOS menus ignore label colors: draw the chip, with an invisible menu on top of it.
+                    Label(late ? "\(Todo.timeText(due)) · late" : Todo.timeText(due), systemImage: "alarm")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(late ? Palette.red : Palette.blue)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill((late ? Palette.red : Palette.blue).opacity(0.15)))
+                        .fixedSize()
+                        .overlay {
+                            Menu {
+                                Button("Snooze 15 min") { tracker.snoozeTodo(todo, minutes: 15) }
+                                Button("Snooze 1 hour") { tracker.snoozeTodo(todo, minutes: 60) }
+                                Divider()
+                                ForEach(quickTimes(now), id: \.0) { label, date in Button(label) { tracker.setTodoTime(todo, date) } }
+                                Divider()
+                                Button("Remove the time") { tracker.setTodoTime(todo, nil) }
+                            } label: { Color.clear }
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                            .opacity(0.02)
+                        }
+                        .help("Snooze or change the time")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !isDone && todo.due == nil {
+                Menu {
+                    ForEach(quickTimes(now), id: \.0) { label, date in Button(label) { tracker.setTodoTime(todo, date) } }
+                } label: {
+                    Image(systemName: "alarm").font(.system(size: 10)).foregroundStyle(Palette.faint)
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Set a time")
+            }
             Button { tracker.deleteTodo(todo) } label: {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Palette.faint)
             }
@@ -300,8 +385,7 @@ struct PRStatsSection: View {
                 }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
     }
 
     private func stat(_ value: String, _ label: String) -> some View {
@@ -349,8 +433,7 @@ struct JiraSection: View {
                 }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
     }
 
     private func statusColor(_ i: JiraIssue) -> Color {
@@ -369,27 +452,27 @@ struct BackgroundCloudSection: View {
             eyebrow("Background & cloud").padding(.bottom, 2)
             ForEach(tracker.backgroundAgents) { a in
                 HStack(spacing: 10) {
-                    Circle().fill(color(a.state)).frame(width: 8, height: 8)
+                    Avatar(name: a.project, color: color(a.state), icon: "square.stack.3d.up.fill")
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(a.name).font(.system(size: 13)).lineLimit(1)
+                        Text(a.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         Text("\(a.project) · " + (a.state == .waiting ? (a.waitingFor.isEmpty ? "needs you" : a.waitingFor)
                                                   : a.state == .working ? "working" : a.state == .done ? "done" : "idle"))
                             .font(.system(size: 11)).foregroundStyle(a.state == .waiting ? Palette.redText : Palette.faint)
                     }
                     Spacer()
                     Button("Open") { tracker.attach(a) }
-                        .buttonStyle(.bordered).controlSize(.small)
+                        .buttonStyle(ActionButtonStyle(small: true))
                         .help("Opens it in Terminal (claude attach)")
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
             }
             ForEach(tracker.cloudBranches.prefix(6)) { b in
                 HStack(spacing: 10) {
-                    Image(systemName: b.prNumber != nil ? "arrow.triangle.pull" : "cloud")
-                        .font(.system(size: 11)).foregroundStyle(b.active ? Palette.orange : Palette.muted).frame(width: 14)
+                    Avatar(name: b.repoName, color: b.active ? Palette.orange : b.prNumber != nil ? Palette.blue : Palette.muted,
+                           icon: b.prNumber != nil ? "arrow.triangle.pull" : "cloud.fill")
                     VStack(alignment: .leading, spacing: 1) {
                         Text(b.prNumber.map { "\(b.repoName) #\($0) \(b.prTitle ?? "")" } ?? "\(b.repoName) · \(b.branch)")
-                            .font(.system(size: 13)).lineLimit(1)
+                            .font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         Text("\(b.active ? "working · " : "")\(formatDuration(now.timeIntervalSince(b.committed))) ago · \(b.headline)")
                             .font(.system(size: 11)).foregroundStyle(Palette.faint).lineLimit(1)
                     }

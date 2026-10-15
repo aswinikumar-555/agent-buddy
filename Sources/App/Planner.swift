@@ -9,6 +9,46 @@ struct Todo: Codable, Identifiable, Equatable {
     var text: String
     var created = Date()
     var done: Date?
+    var due: Date?          // when you want to do it: the buddy reminds you then
+    var reminded: Bool?
+
+    func isLate(_ now: Date) -> Bool { done == nil && (due.map { $0 < now } ?? false) }
+
+    /// "5:30 PM", "Tomorrow 9:00 AM" or "Fri 9:00 AM".
+    static func timeText(_ d: Date) -> String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.dateFormat = cal.isDateInToday(d) ? "h:mm a" : cal.isDateInTomorrow(d) ? "'Tomorrow' h:mm a" : "EEE d MMM, h:mm a"
+        return f.string(from: d)
+    }
+
+    /// A time at the end of the text: "call Ravi at 5pm", "deploy tomorrow 9:30am",
+    /// "standup notes at 14:30". Returns the text without it, and the time (today, or
+    /// tomorrow if that time has already passed today).
+    static func parseTime(_ text: String, now: Date = Date()) -> (String, Date?) {
+        let pattern = #"(?i)\s*(?:\b(today|tomorrow|tmrw)\b\s*)?(?:\bat\s+|@\s*)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*$"#
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let whole = Range(m.range, in: text) else { return (text, nil) }
+        func group(_ i: Int) -> String? { Range(m.range(at: i), in: text).map { String(text[$0]).lowercased() } }
+        let day = group(1), ampm = group(4), minutes = group(3)
+        let said = text[whole].lowercased()
+        // Only a real time: "at 5", "5pm", "5:30", or with today/tomorrow. Not "fix bug 2".
+        guard said.contains("at ") || said.contains("@") || ampm != nil || minutes != nil || day != nil else { return (text, nil) }
+        guard var hour = Int(group(2) ?? ""), let minute = Int(minutes ?? "0"), minute < 60 else { return (text, nil) }
+        if let ampm {
+            guard (1...12).contains(hour) else { return (text, nil) }
+            hour = hour % 12 + (ampm == "pm" ? 12 : 0)
+        }
+        guard hour < 24 else { return (text, nil) }
+        let cal = Calendar.current
+        var date = cal.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
+        if day == "tomorrow" || day == "tmrw" || (day == nil && date <= now) {
+            date = cal.date(byAdding: .day, value: 1, to: date) ?? date
+        }
+        let rest = String(text[..<whole.lowerBound]).trimmingCharacters(in: .whitespaces)
+        return (rest.isEmpty ? text : rest, date)
+    }
 }
 
 enum Todos {

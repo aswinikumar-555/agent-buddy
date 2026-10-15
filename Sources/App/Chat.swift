@@ -204,13 +204,13 @@ struct ChatView: View {
                     .lineLimit(1...4).textFieldStyle(.roundedBorder).font(.system(size: 12))
                     .onSubmit(send)
                 Button(action: send) { Image(systemName: "paperplane.fill") }
-                    .buttonStyle(.borderedProminent).tint(Mood.idle.color)
+                    .buttonStyle(ActionButtonStyle(color: Mood.idle.color))
                     .disabled(task == nil || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(14)
         .frame(width: tracker.panelWidth)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Palette.bg))
+        .background(PanelBackground(radius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(tracker.mood.color.opacity(0.6), lineWidth: 1.5))
         .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
     }

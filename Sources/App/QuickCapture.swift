@@ -78,7 +78,7 @@ private struct CaptureView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "plus.circle.fill").font(.system(size: 20)).foregroundStyle(Palette.blue)
-            TextField("Add a to-do… (or @project message for its agent)", text: $draft.text)
+            TextField("Add a to-do… (\"… at 5pm\" for a reminder, or @project message)", text: $draft.text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18))
                 .onSubmit(submit)
@@ -86,7 +86,7 @@ private struct CaptureView: View {
         }
         .padding(.horizontal, 18)
         .frame(width: 520, height: 64)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Palette.bg))
+        .background(PanelBackground(radius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Palette.border, lineWidth: 1))
         .environment(\.colorScheme, Palette.scheme)
     }

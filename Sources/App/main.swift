@@ -309,7 +309,7 @@ final class Tracker: ObservableObject {
     }
     var statusContentHeight: CGFloat = 0
     private var statusDragStart: (mouse: CGFloat, height: CGFloat)?
-    private let statusRow: CGFloat = 34
+    private let statusRow: CGFloat = 30
 
     func toggleStatus() { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { statusCollapsed.toggle() } }
 
@@ -370,6 +370,27 @@ final class Tracker: ObservableObject {
     var waitingAgents: [AgentTask] {
         tasks.filter { t in t.state == .waiting && !requests.contains { $0.sessionId == t.id } }
     }
+    /// The line under "Agent Buddy" in the panel header.
+    var headerSummary: String {
+        var parts: [String] = []
+        if panelNeedsYou > 0 { parts.append("\(panelNeedsYou) need\(panelNeedsYou == 1 ? "s" : "") you") }
+        if !runningAgents.isEmpty { parts.append("\(runningAgents.count) running") }
+        if parts.isEmpty { parts.append(tasks.isEmpty ? "All quiet" : "All caught up") }
+        if offDuty { parts.append("off duty") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The red count on each tab: what's waiting for you there.
+    func badge(for tab: PanelTab) -> Int {
+        switch tab {
+        case .agents: return panelNeedsYou
+        case .code:
+            return prs.filter { $0.checks == .failing }.count + stacks.reduce(0) { $0 + $1.downCount } + logErrors.count
+        case .cloud: return cloudDownCount + sites.filter { $0.failures >= 2 }.count
+        case .me: return todos.filter { $0.isLate(Date()) }.count
+        }
+    }
+
     /// Everything in the panel's "Needs you" list.
     var panelNeedsYou: Int {
         let cards = [breakDue, waterDue, dueReminder != nil, endOfDayDue, yesterdayNote != nil, napSummary != nil].filter { $0 }.count
@@ -869,13 +890,17 @@ final class Tracker: ObservableObject {
     // MARK: Chat
 
     func openChat(_ sessionId: String) {
-        chatSession = sessionId
+        // From the open panel: crossfade to the chat. Otherwise the panel pops out on it.
+        if panelShown { withAnimation(.easeInOut(duration: 0.2)) { chatSession = sessionId } } else { chatSession = sessionId }
         openPanel()
         chatHistory = []
         refreshChat()
     }
 
-    func closeChat() { chatSession = nil; chatHistory = []; screenText = "" }
+    func closeChat() {
+        withAnimation(.easeInOut(duration: 0.2)) { chatSession = nil }
+        chatHistory = []; screenText = ""
+    }
 
     /// Clicking the robot: open the panel, or close it (and any chat) leaving just the robot.
     private var lastToggle = Date.distantPast
@@ -1382,6 +1407,7 @@ final class Tracker: ObservableObject {
         quietNow = napping || microphoneInUse() || currentMeeting != nil
         lastIdle = idle
         if on(.walking) { maybeWalk(now) }
+        checkTodoTimes(now)
         if on(.autoRemote) { checkAutoRemote(idle: idle) }
         if on(.juggling) { checkJuggling(now) }
         trackToday(now, idle: idle)
@@ -1603,6 +1629,11 @@ final class Tracker: ObservableObject {
         }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { bubble = text; bubbleAction = action }
         bubbleUntil = Date().addingTimeInterval(seconds)
+    }
+
+    /// The bubble's ×: put it away without doing anything.
+    func dismissBubble() {
+        withAnimation(.easeOut(duration: 0.2)) { bubble = nil; bubbleAction = nil }
     }
 
     /// Click on the bubble: jump to that agent (or open the link); otherwise open the panel.
@@ -1975,12 +2006,12 @@ final class Tracker: ObservableObject {
         if abs(target - window.frame.maxX) < 150 { target = window.frame.maxX > screen.midX ? minX + 60 : maxX - 60 }
         let dir: CGFloat = target > window.frame.maxX ? 1 : -1
         withAnimation(.easeInOut(duration: 0.25)) { walkDirection = dir }
-        walkTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+        walkTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             guard let self, let w = mover.window else { self?.stopWalking(); return }
             let busy = self.mood != .idle || self.expanded || self.bubble != nil || self.activity != nil || mover.dragging
             let left = target - w.frame.maxX
             if busy || abs(left) < 2 { self.stopWalking(); return }
-            w.setFrameOrigin(NSPoint(x: w.frame.minX + max(-2.2, min(2.2, left)), y: w.frame.minY))
+            w.setFrameOrigin(NSPoint(x: w.frame.minX + max(-1.1, min(1.1, left)), y: w.frame.minY))
         }
     }
 
@@ -2011,12 +2042,45 @@ final class Tracker: ObservableObject {
 
     // MARK: To-dos
 
-    func addTodo(_ text: String) {
+    /// A time picked for the next to-do (the clock button next to "Add a to-do…").
+    @Published var todoDue: Date?
+
+    /// Adds a to-do. A time comes from `due`, or from the end of the text ("… at 5pm").
+    func addTodo(_ text: String, due: Date? = nil) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        withAnimation(.spring) { todos.append(Todo(text: oneLine(t, max: 200))) }
+        let (rest, said) = Todo.parseTime(t)
+        let when = due ?? said
+        withAnimation(.spring) { todos.append(Todo(text: oneLine(when != nil && due == nil ? rest : t, max: 200), due: when)) }
         Todos.save(todos)
-        say("📝 Added to your to-dos: \(oneLine(t, max: 60))", for: 4, action: .tab(.me))
+        say("📝 Added to your to-dos" + (when.map { " for \(Todo.timeText($0))" } ?? "") + ": \(oneLine(when != nil && due == nil ? rest : t, max: 60))",
+            for: 4, action: .tab(.me))
+    }
+
+    /// Sets, changes or clears (nil) when you want to do it.
+    func setTodoTime(_ todo: Todo, _ due: Date?) {
+        guard let i = todos.firstIndex(where: { $0.id == todo.id }) else { return }
+        withAnimation(.spring) { todos[i].due = due; todos[i].reminded = nil }
+        Todos.save(todos)
+    }
+
+    func snoozeTodo(_ todo: Todo, minutes: Double) {
+        setTodoTime(todo, Date().addingTimeInterval(minutes * 60))
+        say("Okay, I'll remind you in \(Int(minutes)) min.", for: 3)
+    }
+
+    /// At a to-do's time: a reminder in the bubble (once; snoozing sets it again).
+    private func checkTodoTimes(_ now: Date) {
+        guard on(.todos) else { return }
+        for i in todos.indices where todos[i].done == nil && todos[i].reminded != true {
+            guard let due = todos[i].due, due <= now, now.timeIntervalSince(due) < 6 * 3600 else { continue }
+            todos[i].reminded = true
+            Todos.save(todos)
+            alertUntil = now.addingTimeInterval(5)
+            say("⏰ To-do: \(oneLine(todos[i].text, max: 90))", for: 30, action: .tab(.me))
+            notify(title: "⏰ To-do", body: todos[i].text, sound: "Glass")
+            return // one at a time
+        }
     }
 
     func toggleTodo(_ todo: Todo) {
@@ -2191,59 +2255,108 @@ final class Tracker: ObservableObject {
 // MARK: - Window dragging
 
 final class WindowMover {
-    weak var window: NSWindow?
+    /// The window doesn't hug its content: it's a fixed, mostly transparent area above
+    /// and left of the buddy, so nothing ever has to resize the window mid-animation.
+    /// Clicks on its empty parts go through to whatever is behind it.
+    weak var window: NSWindow? {
+        didSet { startClickThrough() }
+    }
     private var startMouse: NSPoint?
     private var startOrigin = NSPoint.zero
     private var moved = false
+    /// What's showing (buddy, bubble, panel), measured; pinned to the window's bottom-right.
+    private(set) var contentSize = CGSize(width: 150, height: 170)
+    private var hoverTimer: Timer?
+    static let maxWidth: CGFloat = 960
 
     func drag() {
         guard let w = window else { return }
         let m = NSEvent.mouseLocation
         if startMouse == nil { startMouse = m; startOrigin = w.frame.origin; moved = false }
         let dx = m.x - startMouse!.x, dy = m.y - startMouse!.y
-        if abs(dx) + abs(dy) > 3 { moved = true }
+        if !moved && abs(dx) + abs(dy) > 3 {
+            moved = true
+            // The big window can't go past the screen's edges; while dragging, it's just the buddy.
+            let f = w.frame
+            let small = NSRect(x: f.maxX - contentSize.width, y: f.minY, width: contentSize.width, height: contentSize.height)
+            w.setFrame(small, display: true)
+            startOrigin = small.origin
+        }
         if moved { w.setFrameOrigin(NSPoint(x: startOrigin.x + dx, y: startOrigin.y + dy)) }
     }
 
     /// Returns true if this gesture was a drag (not a click).
     func end() -> Bool {
         defer { startMouse = nil }
-        if moved { saveAnchor() }
+        if moved {
+            keepOnScreen()
+            saveAnchor()
+            place(anchor: anchor)
+        }
         return moved
+    }
+
+    /// After a drag: if the buddy ended up mostly off every screen, nudge it back on.
+    private func keepOnScreen() {
+        guard let w = window else { return }
+        let buddy = NSRect(x: w.frame.maxX - 90, y: w.frame.minY, width: 90, height: 100)
+        guard !NSScreen.screens.contains(where: { $0.frame.intersects(buddy.insetBy(dx: 30, dy: 30)) }) else { return }
+        let screen = NSScreen.screens.min { a, b in
+            hypot(a.frame.midX - buddy.midX, a.frame.midY - buddy.midY) < hypot(b.frame.midX - buddy.midX, b.frame.midY - buddy.midY)
+        } ?? NSScreen.main
+        guard let v = screen?.visibleFrame else { return }
+        let x = min(max(w.frame.maxX, v.minX + 100), v.maxX)
+        let y = min(max(w.frame.minY, v.minY), v.maxY - 100)
+        w.setFrameOrigin(NSPoint(x: x - w.frame.width, y: y))
     }
 
     var dragging: Bool { startMouse != nil }
 
+    /// The buddy's bottom-right corner, on screen.
+    var anchor: NSPoint {
+        guard let f = window?.frame else { return .zero }
+        return NSPoint(x: f.maxX, y: f.minY)
+    }
+
     /// Remembers where the buddy is (its bottom-right corner), for the next start.
     func saveAnchor() {
+        guard window != nil else { return }
+        UserDefaults.standard.set(NSStringFromPoint(anchor), forKey: "anchor")
+    }
+
+    /// Sizes the window to reach from the buddy up to the top of its screen (and up to
+    /// `maxWidth` to the left), with the buddy's corner at `anchor`.
+    func place(anchor a: NSPoint) {
         guard let w = window else { return }
-        UserDefaults.standard.set(NSStringFromPoint(NSPoint(x: w.frame.maxX, y: w.frame.minY)), forKey: "anchor")
+        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: a.x - 1, y: a.y + 1)) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let width = max(contentSize.width, min(Self.maxWidth, a.x - visible.minX))
+        let height = max(contentSize.height, visible.maxY - a.y)
+        let frame = NSRect(x: a.x - width, y: a.y, width: width, height: height).integral
+        if frame != w.frame.integral { w.setFrame(frame, display: true) }
     }
 
-    /// Resizes the window to the content, keeping the robot's corner (bottom-right) in place.
-    /// Grows right away (so an opening panel has room to animate in), but
-    /// shrinks only after a closing animation has had time to finish.
+    /// New content size: only used to know which part of the window takes clicks
+    /// (and to make room if the content ever outgrows the window).
     func fit(_ size: CGSize) {
-        guard let w = window, size.width > 0, size.height > 0, startMouse == nil else { return }
-        let f = w.frame
-        shrinkWork?.cancel()
-        if size.width > f.width || size.height > f.height {
-            setSize(NSSize(width: max(size.width, f.width), height: max(size.height, f.height)))
-        }
-        if size.width < w.frame.width || size.height < w.frame.height {
-            let work = DispatchWorkItem { [weak self] in self?.setSize(size) }
-            shrinkWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+        guard size.width > 0, size.height > 0 else { return }
+        contentSize = size
+        if let w = window, startMouse == nil, size.width > w.frame.width || size.height > w.frame.height {
+            place(anchor: anchor)
         }
     }
 
-    private var shrinkWork: DispatchWorkItem?
-
-    private func setSize(_ size: NSSize) {
-        guard let w = window, startMouse == nil else { return }
-        let f = w.frame
-        let new = NSRect(x: f.maxX - size.width, y: f.minY, width: size.width, height: size.height)
-        if new.integral != f.integral { w.setFrame(new, display: true) }
+    /// Clicks pass through the window except over the content (bottom-right).
+    private func startClickThrough() {
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            guard let self, let w = self.window else { return }
+            let f = w.frame
+            let content = NSRect(x: f.maxX - self.contentSize.width, y: f.minY,
+                                 width: self.contentSize.width, height: self.contentSize.height).insetBy(dx: -2, dy: -2)
+            let ignore = !self.dragging && !content.contains(NSEvent.mouseLocation)
+            if w.ignoresMouseEvents != ignore { w.ignoresMouseEvents = ignore }
+        }
     }
 }
 
@@ -2295,11 +2408,12 @@ struct BuddyCharacter: View {
             ZStack {
                 Buddy3DView(character: character, mood: mood, activity: activity, costume: costume,
                             tricks: tricks, eyesFollow: eyesFollow, walking: walking)
-                    .id(character) // a new scene when the character changes
+                    .id(character) // a new scene when the character changes…
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom))) // …faded in
                     .frame(width: 130, height: 150)
                     .offset(y: 4)
                 // 2D effects and badges on top of the 3D robot.
-                TimelineView(.animation(minimumInterval: mood == .idle ? 1.0 / 10 : 1.0 / 24)) { ctx in
+                TimelineView(.animation(minimumInterval: mood == .idle ? 1.0 / 30 : 1.0 / 60)) { ctx in
                     overlays(t: ctx.date.timeIntervalSinceReferenceDate)
                 }
             }
@@ -2541,18 +2655,75 @@ struct BuddyCharacter: View {
 
 // MARK: - Bubble & task list
 
+/// The buddy's speech bubble, styled like an iPhone notification: an icon, a bold title
+/// with "now", and the message under it. "✅ payments-api: Fixed the test" becomes the
+/// icon ✅, the title "payments-api" and the message "Fixed the test".
 struct SpeechBubble: View {
     let text: String
     let color: Color
+    /// The × at the top-right; nil hides it (the README images).
+    var onClose: (() -> Void)? = nil
+
     var body: some View {
-        Text(text)
-            .font(.system(size: 13, weight: .semibold, design: .rounded))
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .frame(maxWidth: 260, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .windowBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(color.opacity(0.7), lineWidth: 1.5))
-            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+        let (icon, title, message) = SpeechBubble.parts(text)
+        let shape = RoundedRectangle(cornerRadius: Palette.isApple ? 22 : 16, style: .continuous)
+        HStack(alignment: .top, spacing: 10) {
+            Text(icon).font(.system(size: 16))
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color.opacity(0.2)))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text("now").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                    if let onClose {
+                        Button(action: onClose) {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Palette.muted)
+                                .frame(width: 18, height: 18)
+                                .background(Circle().fill(Palette.text.opacity(0.1)))
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Dismiss")
+                    }
+                }
+                if let message {
+                    Text(message).font(.system(size: 13)).foregroundStyle(Palette.text.opacity(0.85))
+                        .lineLimit(4).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(width: 300, alignment: .leading)
+        .background {
+            if Palette.isApple {
+                Color.clear.liquidGlass(shape, fallback: Palette.bg)
+                    .overlay(shape.fill(Palette.bg.opacity(DocsRenderer.active ? 0 : 0.45)))
+            } else {
+                shape.fill(Palette.bg)
+                    .overlay(alignment: .leading) { Rectangle().fill(color).frame(width: 3).padding(.vertical, 12) }
+            }
+        }
+        .clipShape(shape)
+        .overlay(shape.stroke(Palette.border.opacity(Palette.isApple ? 0.35 : 0.9), lineWidth: Palette.isApple ? 0.5 : 1))
+        .shadow(color: .black.opacity(0.22), radius: 12, y: 5)
+        .environment(\.colorScheme, Palette.scheme)
+    }
+
+    /// The leading emoji, the "title:" before the message, and the message.
+    static func parts(_ text: String) -> (icon: String, title: String, message: String?) {
+        var rest = Substring(text)
+        var icon = "💬"
+        if let first = rest.first, first.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.properties.isEmoji && $0.value > 0x2000 }) {
+            icon = String(first)
+            rest = rest.dropFirst().drop(while: { $0 == " " })
+        }
+        if let colon = rest.range(of: ": "), rest.distance(from: rest.startIndex, to: colon.lowerBound) <= 40,
+           !rest[..<colon.lowerBound].contains("\n") {
+            let message = rest[colon.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return (icon, String(rest[..<colon.lowerBound]), message.isEmpty ? nil : message)
+        }
+        return (icon, "Agent Buddy", String(rest))
     }
 }
 
@@ -2585,8 +2756,7 @@ struct DeployRow: View {
                 Text(run.workflow).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
         .contentShape(Rectangle())
         .onTapGesture { if let u = URL(string: run.url) { NSWorkspace.shared.open(u) } }
         .help("Open on GitHub")
@@ -2602,19 +2772,20 @@ struct RequestCard: View {
         VStack(alignment: .leading, spacing: 8) {
             switch request.kind {
             case let .permission(tool, summary):
-                Text("🔐 \(request.project) wants to use \(tool)").font(.system(size: 13, weight: .bold, design: .rounded))
+                cardTitle("lock.shield.fill", Mood.waiting.color, "\(request.project) wants to use \(tool)")
                 if !summary.isEmpty { codeBox(summary) }
                 HStack {
                     Button("Use terminal") { tracker.answer(request, ["action": "release"]) }
                         .buttonStyle(.borderless).font(.system(size: 11))
                     Spacer()
                     Button("Deny") { tracker.answer(request, ["action": "deny"]) }
+                        .buttonStyle(ActionButtonStyle())
                     Button("Allow") { tracker.answer(request, ["action": "allow"]) }
-                        .buttonStyle(.borderedProminent).tint(Mood.celebrating.color)
+                        .buttonStyle(ActionButtonStyle(color: Mood.celebrating.color))
                 }
 
             case let .questions(questions):
-                Text("❓ \(request.project) is asking").font(.system(size: 13, weight: .bold, design: .rounded))
+                cardTitle("questionmark.bubble.fill", Mood.idle.color, "\(request.project) is asking")
                 ForEach(Array(questions.enumerated()), id: \.offset) { i, q in
                     questionView(i, q)
                 }
@@ -2623,12 +2794,12 @@ struct RequestCard: View {
                         .buttonStyle(.borderless).font(.system(size: 11))
                     Spacer()
                     Button("Send answers") { submit(questions) }
-                        .buttonStyle(.borderedProminent).tint(Mood.idle.color)
+                        .buttonStyle(ActionButtonStyle(color: Mood.idle.color))
                         .disabled(!questions.indices.allSatisfy { answerFor($0, questions[$0]) != nil })
                 }
 
             case let .reply(lastMessage):
-                Text("💬 \(request.project) finished. Reply?").font(.system(size: 13, weight: .bold, design: .rounded))
+                cardTitle("text.bubble.fill", Mood.celebrating.color, "\(request.project) finished. Reply?")
                 if !lastMessage.isEmpty {
                     ScrollView { Text(lastMessage).font(.system(size: 11)).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
                         .frame(maxHeight: 110)
@@ -2643,7 +2814,7 @@ struct RequestCard: View {
                         .buttonStyle(.borderless).font(.system(size: 11))
                     Spacer()
                     Button("Send", action: sendReply)
-                        .buttonStyle(.borderedProminent).tint(Mood.idle.color)
+                        .buttonStyle(ActionButtonStyle(color: Mood.idle.color))
                         .disabled(draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -2652,6 +2823,16 @@ struct RequestCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mood.waiting.color.opacity(0.7), lineWidth: 1.2))
+    }
+
+    /// An icon in a tinted circle, then the card's title.
+    private func cardTitle(_ icon: String, _ color: Color, _ title: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 11, weight: .bold)).foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(color.opacity(0.16)))
+            Text(title).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func codeBox(_ s: String) -> some View {
@@ -2789,7 +2970,7 @@ struct EndOfDayCard: View {
                 Button("Not today") { tracker.saveNote("") }.buttonStyle(.borderless).font(.system(size: 11))
                 Spacer()
                 Button("Save note") { tracker.saveNote(draft.text) }
-                    .buttonStyle(.borderedProminent).tint(Color(red: 1.0, green: 0.55, blue: 0.3))
+                    .buttonStyle(ActionButtonStyle(color: Color(red: 1.0, green: 0.55, blue: 0.3)))
             }
         }
     }
@@ -2842,8 +3023,7 @@ struct PRSection: View {
                 }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
     }
 
     private func row(_ pr: PullRequest, mine: Bool) -> some View {
@@ -2923,8 +3103,7 @@ struct HousekeepingSection: View {
                 Text("I only report these; nothing is deleted.").font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
     }
 
     private func item(path: String, detail: String) -> some View {
@@ -2959,7 +3138,7 @@ struct ReminderCard: View {
                        : reminder.activity == "sleep" ? "Going to sleep" : "Taking it now") {
                     tracker.dismissReminder(tookBreak: true)
                 }
-                    .buttonStyle(.borderedProminent).tint(orange)
+                    .buttonStyle(ActionButtonStyle(color: orange))
             }
         }
         .padding(10)
@@ -2982,7 +3161,7 @@ struct WaterCard: View {
                     .buttonStyle(.borderless).font(.system(size: 11))
                 Spacer()
                 Button("I drank water") { tracker.drankWater() }
-                    .buttonStyle(.borderedProminent).tint(blue)
+                    .buttonStyle(ActionButtonStyle(color: blue))
             }
         }
         .padding(10)
@@ -3004,7 +3183,7 @@ struct BreakCard: View {
                     .buttonStyle(.borderless).font(.system(size: 11))
                 Spacer()
                 Button("I took a break") { tracker.tookBreak() }
-                    .buttonStyle(.borderedProminent).tint(Mood.stretching.color)
+                    .buttonStyle(ActionButtonStyle(color: Mood.stretching.color))
             }
         }
         .padding(10)
@@ -3068,8 +3247,7 @@ struct CloudSection: View {
             }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .panelCard(padding: 10)
     }
 
     private func note(_ text: String) -> some View {
@@ -3202,8 +3380,7 @@ struct StackSection: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Mood.waiting.color.opacity(0.08)))
                     }
                 }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+                .panelCard(padding: 10)
             }
             if !tracker.tunnels.isEmpty {
                 HStack(spacing: 6) {
@@ -3260,8 +3437,9 @@ struct GcpPill: View {
                 Text(tracker.gcp.isLoggedOut ? "GCP · Log in" : "GCP").font(.system(size: 10, weight: .semibold))
             }
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundStyle(color)
+            .background(Palette.isApple ? nil : Capsule().fill(color.opacity(0.15)))
+            .modifier(AppleGlassCapsule())
+            .foregroundStyle(Palette.isApple ? Palette.text : color)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -3285,8 +3463,9 @@ struct AwsPill: View {
                 Text(tracker.aws.isLoggedOut ? "AWS · Log in" : "AWS").font(.system(size: 10, weight: .semibold))
             }
             .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundStyle(color)
+            .background(Palette.isApple ? nil : Capsule().fill(color.opacity(0.15)))
+            .modifier(AppleGlassCapsule())
+            .foregroundStyle(Palette.isApple ? Palette.text : color)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -3294,7 +3473,7 @@ struct AwsPill: View {
 }
 
 private func sectionHeader(_ title: String) -> some View {
-    Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+    eyebrow(title)
 }
 
 extension View {
@@ -3329,11 +3508,13 @@ struct RootView: View {
                 ChatView(tracker: tracker, draft: tracker.chatDraft, sessionId: sid)
                     .environment(\.colorScheme, Palette.scheme)
                     .popOut(tracker.panelShown)
+                    .transition(.opacity)
             } else if tracker.expanded {
                 TaskListView(tracker: tracker)
                     .popOut(tracker.panelShown)
+                    .transition(.opacity)
             } else if let text = tracker.bubble {
-                SpeechBubble(text: text, color: tracker.mood.color)
+                SpeechBubble(text: text, color: tracker.mood.color, onClose: { tracker.dismissBubble() })
                     .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
                     .onTapGesture { tracker.bubbleTapped() }
             }
@@ -3350,6 +3531,7 @@ struct RootView: View {
                            count: tracker.needsYouCount > 0 ? tracker.needsYouCount : tracker.activeCount,
                            alert: tracker.needsYouCount > 0,
                            remote: tracker.remoteMode)
+                .animation(.easeInOut(duration: 0.3), value: tracker.character)
                 .scaleEffect(tracker.scale)
                 .frame(width: 130 * tracker.scale, height: 150 * tracker.scale)
                 .contentShape(Rectangle())
@@ -3393,7 +3575,7 @@ struct RootView: View {
                 }
         }
         .padding(10)
-        .fixedSize() // the window is resized to exactly this (see AppDelegate.fitWindow)
+        .fixedSize() // measured by AppDelegate.fitWindow, to know which part of the window takes clicks
     }
 }
 
@@ -3415,8 +3597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let mover = WindowMover()
     private var sizeWatch: AnyCancellable?
 
-    /// Shrinks/grows the window to whatever is showing, so it never covers or
-    /// blocks clicks on the screen behind it.
+    /// Measures what's showing, so only that part of the window takes clicks.
     func fitWindow() {
         mover.fit(measurer.sizeThatFits(in: CGSize(width: 4000, height: 4000)))
     }
@@ -3454,7 +3635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
-        mover.window = panel // before the first layout, so the first fit() can size the window
+        mover.window = panel
+        mover.place(anchor: anchor)
         tracker.mover = mover
         host = ClickThroughHostingView(rootView: AnchoredRoot(tracker: tracker, mover: mover))
         host.sizingOptions = [] // the window is sized by WindowMover.fit, not by SwiftUI constraints
@@ -3463,6 +3645,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = host
         panel.orderFrontRegardless()
 
+        // Displays added, removed or rearranged: refit the window to its screen.
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) {
+            [weak self] _ in
+            guard let self else { return }
+            self.mover.place(anchor: self.mover.anchor)
+        }
         tracker.start()
         if Setup.needed { DispatchQueue.main.async { Setup.offer() } }
         // Any state change can change what's showing; measure after SwiftUI applies it.

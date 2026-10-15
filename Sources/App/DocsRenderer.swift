@@ -32,8 +32,10 @@ enum DocsRenderer {
         let tracker = sampleTracker()
         var written: [String] = []
         func save(_ image: NSImage?, _ name: String) {
-            guard let image, let png = pngData(image) else { print("✗ \(name)"); return }
-            try? png.write(to: out.appendingPathComponent(name))
+            // Big photo-like images as JPEG (a fraction of the size), the rest as PNG.
+            let data = name.hasSuffix(".jpg") ? image.flatMap(jpegData) : image.flatMap(pngData)
+            guard let data else { print("✗ \(name)"); return }
+            try? data.write(to: out.appendingPathComponent(name))
             written.append(name)
         }
 
@@ -104,7 +106,39 @@ enum DocsRenderer {
             }
         }
         save(snapshot(card(row)), "themes.png")
+
+        // The Apple (iOS style) theme, light and dark, on a wallpaper
+        tracker.panelHeight = 360
+        var apple: [NSImage] = []
+        for name in ["Apple Light", "Apple Dark"] {
+            PanelTheme.choice = name
+            tracker.panelTab = name == "Apple Light" ? .agents : .me
+            if let img = snapshot(TaskListView(tracker: tracker).shadow(color: .clear, radius: 0)) { apple.append(img) }
+        }
+        PanelTheme.choice = "Midnight"
+        tracker.panelTab = .agents
+        let wall = ZStack {
+            LinearGradient(colors: [Color(hex: 0x8EC5FC), Color(hex: 0xE0C3FC), Color(hex: 0xFBC2EB)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            HStack(alignment: .top, spacing: 30) {
+                ForEach(Array(apple.enumerated()), id: \.offset) { _, img in
+                    Image(nsImage: img).resizable().aspectRatio(contentMode: .fit).frame(width: 440)
+                        .shadow(color: .black.opacity(0.25), radius: 26, y: 12)
+                }
+            }
+            .padding(54)
+        }
+        .fixedSize()
+        save(snapshot(wall), "panel-apple.png")
         tracker.panelHeight = 430
+
+        // The README's hero: the buddy and its panel on a desktop, with the pitch.
+        tracker.panelTab = .agents
+        tracker.panelWidth = 420
+        tracker.panelHeight = 330
+        tracker.statusCollapsed = true
+        save(snapshot(hero(tracker)), "hero.jpg")
+        tracker.statusCollapsed = false
 
         // 4. Bubbles over the buddy
         save(snapshot(bubbleScene(text: "✅ payments-api: Fixed the flaky refund test; all 214 tests pass.",
@@ -211,7 +245,8 @@ enum DocsRenderer {
         day.agentSeconds = ["shop-web": 7400, "payments-api": 5200, "mobile-app": 2600]
         day.focusSeconds = ["shop-web": 2.5 * 3600, "payments-api": 1.25 * 3600, "Meetings": 3600, "Other": 0.75 * 3600]
         t.today = day
-        t.todos = [Todo(text: "Review design-system #31"),
+        t.todos = [Todo(text: "Call the payments team about refunds", due: now.addingTimeInterval(-10 * 60)),
+                   Todo(text: "Review design-system #31", due: now.addingTimeInterval(2 * 3600)),
                    Todo(text: "Write the runbook for webhook retries"),
                    Todo(text: "Rotate the staging API keys", done: now)]
         t.usage = ClaudeUsage(fiveHour: .init(percent: 42, resets: now.addingTimeInterval(2 * 3600 + 900)),
@@ -303,9 +338,63 @@ enum DocsRenderer {
             .padding(10)
     }
 
+    /// A desktop-like backdrop, the name and pitch on the left, the panel and buddy on the right.
+    static func hero(_ tracker: Tracker) -> some View {
+        let chips = ["Claude Code & Codex", "GitHub & GitLab", "AWS · Google Cloud", "Meetings & to-dos", "5 characters", "100% local"]
+        return ZStack {
+            LinearGradient(colors: [Color(hex: 0x1A1340), Color(hex: 0x33205F), Color(hex: 0x0E3F52)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            // Soft glows (radial gradients: blur doesn't survive an offscreen snapshot).
+            glow(0x7C5CFF, 0.55, 520).offset(x: -420, y: -260)
+            glow(0x00C2A8, 0.42, 500).offset(x: 480, y: 320)
+            glow(0xFF7A59, 0.26, 380).offset(x: 140, y: -340)
+            HStack(alignment: .center, spacing: 56) {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(spacing: 14) {
+                        Image(nsImage: render3D(.nori, mood: .celebrating, activity: nil, t: 0.43))
+                            .resizable().frame(width: 78, height: 90)
+                        Text("Agent Buddy").font(.system(size: 66, weight: .heavy, design: .rounded)).foregroundStyle(.white)
+                    }
+                    Text("A 3D desktop buddy that watches your AI coding agents, your code and your cloud, and tells you the moment something needs you.")
+                        .font(.system(size: 23, weight: .medium)).foregroundStyle(.white.opacity(0.82))
+                        .lineSpacing(5).frame(width: 600, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                    FlowLayout(spacing: 10) {
+                        ForEach(chips, id: \.self) { c in
+                            Text(c).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(Capsule().fill(.white.opacity(0.12)))
+                                .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
+                        }
+                    }
+                    .frame(width: 600, alignment: .leading)
+                    Text("Free and open source · macOS 14+ · Apple silicon & Intel")
+                        .font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                }
+                VStack(alignment: .trailing, spacing: 8) {
+                    TaskListView(tracker: tracker)
+                    HStack(alignment: .bottom, spacing: 4) {
+                        SpeechBubble(text: "✅ payments-api: all 214 tests pass.", color: Mood.celebrating.color)
+                            .padding(.bottom, 70)
+                        character(.nori, mood: .celebrating, activity: nil, t: 0.43)
+                    }
+                }
+                .environment(\.colorScheme, .dark)
+            }
+        }
+        .frame(width: 1500, height: 900)
+        .clipped()
+    }
+
+    private static func glow(_ hex: UInt32, _ strength: Double, _ radius: CGFloat) -> some View {
+        Circle()
+            .fill(RadialGradient(colors: [Color(hex: hex).opacity(strength), Color(hex: hex).opacity(0)],
+                                 center: .center, startRadius: 0, endRadius: radius))
+            .frame(width: radius * 2, height: radius * 2)
+    }
+
     static func bubbleScene(text: String, mood: Mood, t: Double) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
-            SpeechBubble(text: text, color: mood.color)
+            SpeechBubble(text: text, color: mood.color, onClose: {})
             character(.nori, mood: mood, activity: nil, t: t)
         }
         .padding(16)
@@ -371,5 +460,11 @@ enum DocsRenderer {
         guard let rep = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first
                 ?? image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else { return nil }
         return rep.representation(using: .png, properties: [:])
+    }
+
+    static func jpegData(_ image: NSImage) -> Data? {
+        guard let rep = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first
+                ?? image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.86])
     }
 }
