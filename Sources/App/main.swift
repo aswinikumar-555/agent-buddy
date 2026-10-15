@@ -240,6 +240,13 @@ final class Tracker: ObservableObject {
             UserDefaults.standard.set(panelTheme, forKey: "panelTheme")
         }
     }
+    /// The Apple theme's glass: Clear, Balanced or Frosted (remembered).
+    @Published var glassClarity = PanelTheme.glass {
+        didSet {
+            PanelTheme.glass = glassClarity
+            UserDefaults.standard.set(glassClarity, forKey: "glassClarity")
+        }
+    }
     private var appearanceWatch: NSObjectProtocol?
     /// "Auto" theme: redraw when the Mac switches between light and dark.
     func watchAppearance() {
@@ -562,15 +569,15 @@ final class Tracker: ObservableObject {
         }
         // The window grows on the next turn of the run loop; animate once it has.
         let work = DispatchWorkItem { [weak self] in
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { self?.panelShown = true }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { self?.panelShown = true }
         }
         panelWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: work)
     }
 
     func hidePanel(then done: (() -> Void)? = nil) {
         panelWork?.cancel()
-        withAnimation(.spring(response: 0.26, dampingFraction: 0.9)) { panelShown = false }
+        withAnimation(.easeIn(duration: 0.16)) { panelShown = false }
         let work = DispatchWorkItem { [weak self] in
             var t = Transaction()
             t.disablesAnimations = true
@@ -578,7 +585,7 @@ final class Tracker: ObservableObject {
             done?()
         }
         panelWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
     /// Mac notifications (top-right banners) are off by default: everything is
     /// shown in the speech bubble above the buddy instead.
@@ -2341,22 +2348,43 @@ final class WindowMover {
     func fit(_ size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         contentSize = size
+        updateClickThrough()
         if let w = window, startMouse == nil, size.width > w.frame.width || size.height > w.frame.height {
             place(anchor: anchor)
         }
     }
 
-    /// Clicks pass through the window except over the content (bottom-right).
+    /// Clicks pass through the window except over the content (bottom-right). Checked on every
+    /// pointer move (so a quick click on the buddy is never missed), with a timer as a backstop.
+    private var moveMonitors: [Any] = []
+
+    private func updateClickThrough() {
+        guard let w = window else { return }
+        let f = w.frame
+        let m = NSEvent.mouseLocation
+        let content = NSRect(x: f.maxX - contentSize.width, y: f.minY,
+                             width: contentSize.width, height: contentSize.height).insetBy(dx: -2, dy: -2)
+        // A margin around the buddy itself: an approaching pointer turns clicks on before it arrives.
+        let buddy = NSRect(x: f.maxX - 160, y: f.minY, width: 160, height: 190).insetBy(dx: -24, dy: -24)
+        let ignore = !dragging && !content.contains(m) && !buddy.contains(m)
+        if w.ignoresMouseEvents != ignore { w.ignoresMouseEvents = ignore }
+    }
+
     private func startClickThrough() {
-        hoverTimer?.invalidate()
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            guard let self, let w = self.window else { return }
-            let f = w.frame
-            let content = NSRect(x: f.maxX - self.contentSize.width, y: f.minY,
-                                 width: self.contentSize.width, height: self.contentSize.height).insetBy(dx: -2, dy: -2)
-            let ignore = !self.dragging && !content.contains(NSEvent.mouseLocation)
-            if w.ignoresMouseEvents != ignore { w.ignoresMouseEvents = ignore }
+        moveMonitors.forEach(NSEvent.removeMonitor)
+        moveMonitors = []
+        let kinds: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: kinds, handler: { [weak self] _ in self?.updateClickThrough() }) {
+            moveMonitors.append(global)
         }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: kinds, handler: { [weak self] e in self?.updateClickThrough(); return e }) {
+            moveMonitors.append(local)
+        }
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            self?.updateClickThrough()
+        }
+        if let hoverTimer { RunLoop.main.add(hoverTimer, forMode: .common) } // keeps running while a menu is open
     }
 }
 
@@ -2413,12 +2441,18 @@ struct BuddyCharacter: View {
                     .frame(width: 130, height: 150)
                     .offset(y: 4)
                 // 2D effects and badges on top of the 3D robot.
-                TimelineView(.animation(minimumInterval: mood == .idle ? 1.0 / 30 : 1.0 / 60)) { ctx in
+                // Each tick re-lays out the window, so: 30 a second while something moves, 10 when calm.
+                TimelineView(.animation(minimumInterval: overlaysMoving ? 1.0 / 30 : 1.0 / 10)) { ctx in
                     overlays(t: ctx.date.timeIntervalSinceReferenceDate)
                 }
             }
             .frame(width: 130, height: 150)
         }
+    }
+
+    /// Gears, confetti, Z's, a bobbing drop or emoji: something in the overlays is moving.
+    private var overlaysMoving: Bool {
+        mood != .idle || activity != nil || waterDue || reminderEmoji != nil || prod || remote
     }
 
     func overlays(t: Double) -> some View {
@@ -3480,8 +3514,11 @@ extension View {
     /// The panel pops out of the buddy (bottom-right corner) and folds back into it.
     /// Only drawing changes (scale and fade), never layout, so it stays smooth.
     func popOut(_ shown: Bool) -> some View {
-        compositingGroup()
-            .scaleEffect(shown ? 1 : 0.2, anchor: .bottomTrailing)
+        // Swings up out of the buddy in 3D (tipped back, then settling flat), with a short
+        // zoom and a fade: light enough to stay smooth even over Liquid Glass.
+        rotation3DEffect(.degrees(shown ? 0 : 16), axis: (x: 1, y: -0.3, z: 0), anchor: .bottomTrailing, perspective: 0.55)
+            .scaleEffect(shown ? 1 : 0.86, anchor: .bottomTrailing)
+            .offset(y: shown ? 0 : 12)
             .opacity(shown ? 1 : 0)
             .allowsHitTesting(shown)
     }
@@ -3501,6 +3538,9 @@ struct AnchoredRoot: View {
 struct RootView: View {
     @ObservedObject var tracker: Tracker
     let mover: WindowMover
+    /// The buddy under the pointer, and pressed (state spelled out by hand, see Hoverable).
+    private let botHover = State(initialValue: false)
+    private let botPressed = State(initialValue: false)
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -3515,7 +3555,11 @@ struct RootView: View {
                     .transition(.opacity)
             } else if let text = tracker.bubble {
                 SpeechBubble(text: text, color: tracker.mood.color, onClose: { tracker.dismissBubble() })
-                    .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
+                    .hoverable(scale: 1.015)
+                    // Springs up out of the buddy, and fades away.
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.7, anchor: .bottomTrailing).combined(with: .offset(y: 16)).combined(with: .opacity),
+                        removal: .scale(scale: 0.94, anchor: .bottomTrailing).combined(with: .opacity)))
                     .onTapGesture { tracker.bubbleTapped() }
             }
             BuddyCharacter(character: tracker.character,
@@ -3532,13 +3576,28 @@ struct RootView: View {
                            alert: tracker.needsYouCount > 0,
                            remote: tracker.remoteMode)
                 .animation(.easeInOut(duration: 0.3), value: tracker.character)
+                // Feels like a button: lifts under the pointer, squishes when pressed, bounces back.
+                .scaleEffect(botPressed.wrappedValue ? 0.9 : (botHover.wrappedValue ? 1.06 : 1), anchor: .bottom)
+                .animation(.spring(response: 0.24, dampingFraction: botPressed.wrappedValue ? 0.8 : 0.5), value: botPressed.wrappedValue)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: botHover.wrappedValue)
                 .scaleEffect(tracker.scale)
                 .frame(width: 130 * tracker.scale, height: 150 * tracker.scale)
                 .contentShape(Rectangle())
+                .onHover { inside in
+                    guard inside != botHover.wrappedValue else { return }
+                    botHover.wrappedValue = inside
+                    if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
                 .gesture(
                     DragGesture(minimumDistance: 0)
-                        .onChanged { _ in mover.drag() }
-                        .onEnded { _ in if !mover.end() { tracker.togglePanel() } }
+                        .onChanged { _ in
+                            if !botPressed.wrappedValue && !mover.dragging { botPressed.wrappedValue = true }
+                            mover.drag()
+                        }
+                        .onEnded { _ in
+                            botPressed.wrappedValue = false
+                            if !mover.end() { tracker.togglePanel() }
+                        }
                 )
                 .help("Click to show or hide your agents")
                 .contextMenu {

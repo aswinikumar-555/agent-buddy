@@ -90,6 +90,8 @@ struct PanelTheme {
     /// The chosen theme. "Auto" picks Midnight or Daylight, and "Apple" Apple Light or Dark,
     /// from the Mac's appearance.
     nonisolated(unsafe) static var choice = UserDefaults.standard.string(forKey: "panelTheme") ?? "Auto"
+    /// The Apple theme's glass: "Clear" (see-through), "Balanced" or "Frosted".
+    nonisolated(unsafe) static var glass = UserDefaults.standard.string(forKey: "glassClarity") ?? "Balanced"
     static var current: PanelTheme {
         if choice == "Apple" { return macIsDark ? appleDark : appleLight }
         if let t = all.first(where: { $0.name == choice }) { return t }
@@ -128,6 +130,23 @@ enum Palette {
     static var divider: Color { Color(hex: t.divider) }
     static var scheme: ColorScheme { t.isDark ? .dark : .light }
     static var isApple: Bool { t.isApple }
+    /// How much of the theme color lies over the glass, and how solid the cards are.
+    static var veil: Double {
+        let dark = scheme == .dark
+        switch PanelTheme.glass {
+        case "Clear": return dark ? 0.2 : 0.12
+        case "Frosted": return dark ? 0.62 : 0.55
+        default: return dark ? 0.36 : 0.3
+        }
+    }
+    static var cardOpacity: Double {
+        switch PanelTheme.glass {
+        case "Clear": return scheme == .dark ? 0.32 : 0.45
+        case "Frosted": return scheme == .dark ? 0.85 : 0.92
+        default: return scheme == .dark ? 0.6 : 0.72
+        }
+    }
+    static var clearGlass: Bool { isApple && PanelTheme.glass == "Clear" }
 }
 
 /// Frosted glass that blurs the desktop behind the panel (the Apple theme), like
@@ -148,10 +167,11 @@ extension View {
     /// reacting to the pointer. Older macOS, and the README images, get `fallback` instead.
     /// (Built with an older Xcode, without the macOS 26 SDK, it's always the fallback.)
     @ViewBuilder
-    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, fallback: Color? = nil) -> some View {
+    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, fallback: Color? = nil, clear: Bool = false) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26, *), !DocsRenderer.active {
-            let glass = tint.map { Glass.regular.tint($0) } ?? Glass.regular
+            let base = clear ? Glass.clear : Glass.regular
+            let glass = tint.map { base.tint($0) } ?? base
             self.glassEffect(interactive ? glass.interactive() : glass, in: shape)
         } else {
             self.background(shape.fill(fallback ?? tint ?? Palette.raised))
@@ -178,9 +198,9 @@ struct PanelBackground: View {
         if Palette.isApple {
             if Self.hasLiquidGlass && !DocsRenderer.active {
                 // Glass, with a veil of the theme color so text stays readable over a busy desktop.
-                Color.clear.liquidGlass(shape).overlay(shape.fill(Palette.bg.opacity(Palette.scheme == .dark ? 0.62 : 0.55)))
+                Color.clear.liquidGlass(shape, clear: Palette.clearGlass).overlay(shape.fill(Palette.bg.opacity(Palette.veil)))
             } else if !DocsRenderer.active {
-                FrostedGlass().clipShape(shape).overlay(shape.fill(Palette.bg.opacity(0.55)))
+                FrostedGlass().clipShape(shape).overlay(shape.fill(Palette.bg.opacity(max(0.3, Palette.veil))))
             } else {
                 shape.fill(Palette.bg)
             }
@@ -260,7 +280,7 @@ extension View {
         return self.padding(Palette.isApple ? padding + 2 : padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: r, style: .continuous)
-                .fill(Palette.isApple ? Palette.raised.opacity(Palette.scheme == .dark ? 0.85 : 0.92) : Palette.raised))
+                .fill(Palette.isApple ? Palette.raised.opacity(Palette.cardOpacity) : Palette.raised))
             // iOS cards have no outline; the classic themes do.
             .overlay(RoundedRectangle(cornerRadius: r, style: .continuous)
                 .stroke(Palette.isApple ? .clear : Palette.border.opacity(0.75), lineWidth: 1))
@@ -286,8 +306,9 @@ struct ActionButtonStyle: ButtonStyle {
             .frame(height: small ? 24 : 30)
             .liquidGlass(Capsule(), tint: color, interactive: true, fallback: color ?? Palette.well)
             .opacity(configuration.isPressed ? 0.8 : 1)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+            .hoverable(scale: 1.04)
     }
 
     private func classicBody(_ configuration: Configuration) -> some View {
@@ -306,8 +327,9 @@ struct ActionButtonStyle: ButtonStyle {
                 .stroke(Palette.isApple ? .clear : (color == nil ? Palette.border : .black.opacity(0.15)), lineWidth: 1))
             .shadow(color: (color ?? .black).opacity(color == nil || Palette.isApple ? 0 : 0.35), radius: 4, y: 2)
             .opacity(configuration.isPressed ? 0.75 : 1)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
+            .hoverable(scale: 1.04)
     }
 }
 
@@ -316,6 +338,104 @@ struct TabTrack: ViewModifier {
     func body(content: Content) -> some View {
         if Palette.isApple { content.liquidGlass(Capsule(), fallback: Palette.well) }
         else { content.background(RoundedRectangle(cornerRadius: 10).fill(Palette.well)) }
+    }
+}
+
+/// Hover feedback for anything clickable: it lifts a touch, brightens, and shows a hand cursor.
+/// (State is spelled out by hand: the @State shorthand needs a compiler plugin the command-line tools lack.)
+struct Hoverable: ViewModifier {
+    var scale: CGFloat = 1.02
+    private let hovering = State(initialValue: false)
+
+    func body(content: Content) -> some View {
+        content
+            .brightness(hovering.wrappedValue ? 0.035 : 0)
+            .scaleEffect(hovering.wrappedValue ? scale : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: hovering.wrappedValue)
+            .onHover { inside in
+                guard inside != hovering.wrappedValue else { return }
+                hovering.wrappedValue = inside
+                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .onDisappear { if hovering.wrappedValue { hovering.wrappedValue = false; NSCursor.pop() } }
+    }
+}
+
+extension View {
+    func hoverable(scale: CGFloat = 1.02) -> some View { modifier(Hoverable(scale: scale)) }
+}
+
+/// Tilts a small card toward the pointer in 3D while you hover over it (the tiles).
+struct TiltHover: ViewModifier {
+    var size: CGSize                                        // roughly how big the card is
+    private let tilt = State(initialValue: CGPoint.zero)    // -1…1 across and down
+
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(.degrees(Double(-tilt.wrappedValue.y) * 10), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+            .rotation3DEffect(.degrees(Double(tilt.wrappedValue.x) * 10), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+            .onContinuousHover { phase in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    switch phase {
+                    case .active(let p):
+                        tilt.wrappedValue = CGPoint(x: min(1, max(-1, p.x / max(1, size.width) * 2 - 1)),
+                                                    y: min(1, max(-1, p.y / max(1, size.height) * 2 - 1)))
+                    case .ended:
+                        tilt.wrappedValue = .zero
+                    }
+                }
+            }
+    }
+}
+
+/// Fades and slides a view in when it appears, after `delay` (for a cascade).
+struct AppearIn: ViewModifier {
+    var delay: Double = 0
+    var distance: CGFloat = 10
+    private let shown = State(initialValue: DocsRenderer.active) // the README images are drawn at once, already in place
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown.wrappedValue ? 1 : 0)
+            .offset(y: shown.wrappedValue ? 0 : distance)
+            .scaleEffect(shown.wrappedValue ? 1 : 0.96, anchor: .top)
+            .onAppear {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.8).delay(delay)) { shown.wrappedValue = true }
+            }
+    }
+}
+
+extension View {
+    func appearIn(delay: Double = 0, distance: CGFloat = 10) -> some View { modifier(AppearIn(delay: delay, distance: distance)) }
+}
+
+/// The panel's folded edge: a beveled rim, bright on the top edge and dark on the bottom,
+/// with a second, fainter fold just inside it.
+struct MirrorFinish: ViewModifier {
+    var radius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let dark = Palette.scheme == .dark
+        return content
+            .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.35 : 0.9), .white.opacity(0.05), .black.opacity(dark ? 0.55 : 0.18)],
+                                                       startPoint: .top, endPoint: .bottom), lineWidth: 1.5)
+                .allowsHitTesting(false))
+            .overlay(RoundedRectangle(cornerRadius: radius - 3, style: .continuous).inset(by: 3)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.10 : 0.35), .clear, .black.opacity(dark ? 0.25 : 0.06)],
+                                             startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                .allowsHitTesting(false))
+    }
+}
+
+/// On clear glass, a soft shadow under the text keeps it readable over whatever is behind.
+struct Legible: ViewModifier {
+    func body(content: Content) -> some View {
+        if Palette.clearGlass {
+            content.shadow(color: .black.opacity(Palette.scheme == .dark ? 0.55 : 0.2), radius: 1.6, y: 0.6)
+        } else {
+            content
+        }
     }
 }
 
@@ -343,11 +463,14 @@ func headerButton(_ icon: String, help: String, action: @escaping () -> Void) ->
         .contentShape(Circle())
     }
     .buttonStyle(.plain)
+    .hoverable(scale: 1.1)
     .help(help)
 }
 
 struct TaskListView: View {
     @ObservedObject var tracker: Tracker
+    /// So the selected tab's highlight slides from tab to tab.
+    private let tabSpace = Namespace()
     private var panelRadius: CGFloat { Palette.isApple ? 26 : 20 }
 
     var body: some View {
@@ -361,6 +484,7 @@ struct TaskListView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, tracker.panelCompact ? 14 : 10)
+            .modifier(Legible())
 
             if !tracker.panelCompact {
             ScrollView {
@@ -377,6 +501,9 @@ struct TaskListView: View {
                         case .me: MeTab(tracker: tracker, now: ctx.date)
                         }
                         }
+                        .id(tracker.panelTab)                 // fresh views per tab…
+                        .appearIn(distance: 14)               // …that slide up into place
+                        .modifier(Legible())
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
@@ -397,15 +524,14 @@ struct TaskListView: View {
                     .fill(LinearGradient(colors: [Color.white.opacity(Palette.scheme == .dark ? 0.05 : (Palette.isApple ? 0.2 : 0.5)), .clear],
                                          startPoint: .top, endPoint: .center)))
         )
-        .overlay(RoundedRectangle(cornerRadius: panelRadius, style: .continuous)
-            .strokeBorder(LinearGradient(colors: [Color.white.opacity(Palette.scheme == .dark ? 0.12 : 0.6), Palette.border.opacity(Palette.isApple ? 0.5 : 1)],
-                                         startPoint: .top, endPoint: .bottom), lineWidth: Palette.isApple ? 0.5 : 1))
         .clipShape(RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
+        .modifier(MirrorFinish(radius: panelRadius))
         .overlay(alignment: .topLeading) { ResizeHandles(tracker: tracker) }
         .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
         .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
         .environment(\.colorScheme, Palette.scheme)
         .animation(.easeInOut(duration: 0.25), value: tracker.panelTheme)
+        .animation(.easeInOut(duration: 0.25), value: tracker.glassClarity)
     }
 
     // MARK: Header
@@ -418,6 +544,7 @@ struct TaskListView: View {
                 Circle().fill(tracker.mood.color).frame(width: 9, height: 9)
                     .shadow(color: tracker.mood.color.opacity(0.8), radius: 4)
             }
+            .animation(.easeInOut(duration: 0.4), value: tracker.mood)
             // Two lines: the name and the controls, then the summary and the cloud logins.
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -468,6 +595,13 @@ struct TaskListView: View {
             Button("Smaller buddy") { tracker.resize(by: -0.1) }.disabled(tracker.scale <= 0.3)
             Picker("Character", selection: $tracker.character) {
                 ForEach(BuddyCharacterKind.allCases) { Text($0.title).tag($0) }
+            }
+            if tracker.panelTheme == "Apple" {
+                Picker("Glass", selection: $tracker.glassClarity) {
+                    Text("Clear (see-through)").tag("Clear")
+                    Text("Balanced").tag("Balanced")
+                    Text("Frosted").tag("Frosted")
+                }
             }
             Picker("Theme", selection: $tracker.panelTheme) {
                 Text("Auto (follow the Mac)").tag("Auto")
@@ -543,22 +677,33 @@ struct TaskListView: View {
         let ecsDown = tracker.cloudDownCount
         return HStack(spacing: 6) {
             tile(tracker.panelNeedsYou, "need you", icon: "exclamationmark.bubble.fill",
-                 color: tracker.panelNeedsYou > 0 ? Palette.red : nil) { tracker.show(.agents) }
+                 color: tracker.panelNeedsYou > 0 ? Palette.red : nil, index: 0) { tracker.show(.agents) }
             tile(tracker.runningAgents.count, "running", icon: "bolt.fill",
-                 color: tracker.runningAgents.isEmpty ? nil : Palette.orange) { tracker.show(.agents) }
+                 color: tracker.runningAgents.isEmpty ? nil : Palette.orange, index: 1) { tracker.show(.agents) }
             tile(failingPRs, "PRs failing", icon: "arrow.triangle.pull",
-                 color: failingPRs > 0 ? Palette.red : nil) { tracker.show(.code) }
+                 color: failingPRs > 0 ? Palette.red : nil, index: 2) { tracker.show(.code) }
             tile(ecsDown, "cloud down", icon: "cloud.bolt.fill",
-                 color: ecsDown > 0 ? Palette.red : nil) { tracker.show(.cloud) }
+                 color: ecsDown > 0 ? Palette.red : nil, index: 3) { tracker.show(.cloud) }
         }
     }
 
     /// A number tile: lit in its color when there's something to see, quiet when it's zero.
-    private func tile(_ n: Int, _ label: String, icon: String, color: Color?, action: @escaping () -> Void) -> some View {
+    private func tile(_ n: Int, _ label: String, icon: String, color: Color?, index: Int, action: @escaping () -> Void) -> some View {
         Group {
             if Palette.isApple { appleTile(n, label, icon: icon, color: color, action: action) }
             else { classicTile(n, label, icon: icon, color: color, action: action) }
         }
+        .modifier(TiltHover(size: CGSize(width: (tracker.panelWidth - 50) / 4, height: Palette.isApple ? 50 : 60)))
+        .hoverable(scale: 1.04)
+        .appearIn(delay: 0.04 + Double(index) * 0.045, distance: 12)
+    }
+
+    /// A tile's number rolls to its new value; its icon bounces when it changes (and "need you" pulses).
+    private func tileNumber(_ n: Int, size: CGFloat, color: Color) -> some View {
+        Text("\(n)").font(.system(size: size, weight: .bold, design: .rounded).monospacedDigit())
+            .foregroundStyle(color)
+            .contentTransition(.numericText(value: Double(n)))
+            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: n)
     }
 
     /// Control Center style: the icon in a filled circle (grey when there's nothing), a big number, the label.
@@ -568,11 +713,11 @@ struct TaskListView: View {
                 HStack(spacing: 6) {
                     Image(systemName: icon).font(.system(size: 9.5, weight: .bold))
                         .foregroundStyle(color == nil ? Palette.muted : .white)
+                        .symbolEffect(.bounce, value: n)
+                        .symbolEffect(.pulse, isActive: n > 0 && icon == "exclamationmark.bubble.fill")
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(color ?? Palette.well))
-                    Text("\(n)").font(.system(size: 17, weight: .bold).monospacedDigit())
-                        .foregroundStyle(Palette.text)
-                        .contentTransition(.numericText())
+                    tileNumber(n, size: 17, color: Palette.text)
                 }
                 Text(label).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.muted)
                     .lineLimit(1).minimumScaleFactor(0.85)
@@ -591,11 +736,11 @@ struct TaskListView: View {
         return Button(action: { withAnimation(.easeInOut(duration: 0.15)) { action() } }) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 0) {
-                    Text("\(n)").font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(color ?? Palette.text.opacity(0.55))
-                        .contentTransition(.numericText())
+                    tileNumber(n, size: 22, color: color ?? Palette.text.opacity(0.55))
                     Spacer(minLength: 2)
                     Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint.opacity(color == nil ? 0.6 : 1))
+                        .symbolEffect(.bounce, value: n)
+                        .symbolEffect(.pulse, isActive: n > 0 && icon == "exclamationmark.bubble.fill")
                 }
                 Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.muted).lineLimit(1)
             }
@@ -615,12 +760,14 @@ struct TaskListView: View {
             ForEach(PanelTab.allCases, id: \.self) { tab in
                 let on = tracker.panelTab == tab
                 let badge = tracker.badge(for: tab)
-                Button { withAnimation(.easeInOut(duration: 0.18)) { tracker.panelTab = tab } } label: {
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { tracker.panelTab = tab } } label: {
                     HStack(spacing: 5) {
                         Image(systemName: tab.icon).font(.system(size: 10.5, weight: .semibold))
+                            .symbolEffect(.bounce, value: on)
                         Text(tab.rawValue).font(.system(size: 12, weight: on ? .semibold : .medium))
                         if badge > 0 {
                             Text("\(badge)").font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                .contentTransition(.numericText(value: Double(badge)))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5).frame(minWidth: 16, minHeight: 16)
                                 .background(Capsule().fill(Palette.red))
@@ -629,11 +776,17 @@ struct TaskListView: View {
                     .foregroundStyle(on ? Palette.text : Palette.muted)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: Palette.isApple ? 100 : 8, style: .continuous)
-                        .fill(on ? (Palette.isApple ? Palette.text.opacity(Palette.scheme == .dark ? 0.16 : 0.09) : Palette.segment) : .clear)
-                        .shadow(color: .black.opacity(on && !Palette.isApple ? 0.18 : 0), radius: 2, y: 1))
+                    .background {
+                        if on {
+                            RoundedRectangle(cornerRadius: Palette.isApple ? 100 : 8, style: .continuous)
+                                .fill(Palette.isApple ? Palette.text.opacity(Palette.scheme == .dark ? 0.16 : 0.09) : Palette.segment)
+                                .shadow(color: .black.opacity(Palette.isApple ? 0 : 0.18), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "selectedTab", in: tabSpace.wrappedValue)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
+                .hoverable(scale: 1.0)
                 .buttonStyle(.plain)
             }
         }
@@ -714,6 +867,7 @@ struct AgentRow: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(highlighted ? Palette.raised : .clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .hoverable(scale: 1.01)
         .help("Open chat with this agent")
     }
 
@@ -1106,6 +1260,7 @@ struct StatusPills: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .hoverable(scale: 1.05)
     }
 }
 

@@ -1002,8 +1002,9 @@ struct Buddy3DView: NSViewRepresentable {
         context.coordinator.set(costume: costume)
         context.coordinator.set(tricks: tricks, gaze: context.coordinator.lastGaze, walking: walking)
         context.coordinator.followMouse(in: view, eyesFollow)
-        // Calm and still: 30 frames a second saves battery; anything moving gets 60 to look smooth.
-        view.preferredFramesPerSecond = mood == .idle && walking == 0 && !eyesFollow ? 30 : 60
+        // 30 frames a second looks smooth for poses, gears and gaze; only fast motion (the
+        // celebration jump, walking) gets 60. Each extra frame costs battery.
+        view.preferredFramesPerSecond = mood == .celebrating || walking != 0 ? 60 : 30
     }
 }
 
