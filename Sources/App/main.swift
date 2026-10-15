@@ -525,7 +525,40 @@ final class Tracker: ObservableObject {
     }
     @Published var bubble: String?
     @Published var mood: Mood = .idle
+    /// The panel has room in the window (it's laid out)…
     @Published var expanded = false
+    /// …and is showing. Opening makes room first, then pops the panel out of the buddy;
+    /// closing folds it back in, then gives the room back. So the window never resizes mid-animation.
+    @Published var panelShown = false
+    private var panelWork: DispatchWorkItem?
+
+    func openPanel() {
+        panelWork?.cancel()
+        if !expanded {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { expanded = true }
+        }
+        // The window grows on the next turn of the run loop; animate once it has.
+        let work = DispatchWorkItem { [weak self] in
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) { self?.panelShown = true }
+        }
+        panelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
+    func hidePanel(then done: (() -> Void)? = nil) {
+        panelWork?.cancel()
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.9)) { panelShown = false }
+        let work = DispatchWorkItem { [weak self] in
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { self?.expanded = false }
+            done?()
+        }
+        panelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26, execute: work)
+    }
     /// Mac notifications (top-right banners) are off by default: everything is
     /// shown in the speech bubble above the buddy instead.
     @Published var macNotifications = UserDefaults.standard.bool(forKey: "macNotifications") {
@@ -836,7 +869,8 @@ final class Tracker: ObservableObject {
     // MARK: Chat
 
     func openChat(_ sessionId: String) {
-        withAnimation(.spring) { chatSession = sessionId; expanded = true }
+        chatSession = sessionId
+        openPanel()
         chatHistory = []
         refreshChat()
     }
@@ -850,13 +884,11 @@ final class Tracker: ObservableObject {
         // One click = one toggle, even if the click is delivered twice.
         guard Date().timeIntervalSince(lastToggle) > 0.35 else { return }
         lastToggle = Date()
-        if napping { wake(); withAnimation(.spring) { expanded = true }; return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-            if expanded { closeChat(); expanded = false } else { expanded = true }
-        }
+        if napping { wake(); openPanel(); return }
+        if panelShown { hidePanel { [weak self] in self?.closeChat() } } else { openPanel() }
     }
 
-    func closePanel() { if expanded { togglePanel() } }
+    func closePanel() { if panelShown { togglePanel() } }
 
     private func refreshChat() {
         lastChatLoad = Date()
@@ -1426,7 +1458,8 @@ final class Tracker: ObservableObject {
             }
         }
         let wasSleep = dueReminder?.activity == "sleep"
-        withAnimation(.spring) { dueReminder = nil; expanded = false }
+        withAnimation(.spring) { dueReminder = nil }
+        hidePanel()
         say(tookBreak ? (wasSleep ? "Good night! 🌙" : "Enjoy! 😋") : "Okay.", for: 3)
         updateActivity(Date())
     }
@@ -1583,7 +1616,7 @@ final class Tracker: ObservableObject {
             NSWorkspace.shared.open(url)
         case .tab(let tab)?:
             panelTab = tab
-            if !expanded { togglePanel() }
+            if !panelShown { openPanel() }
         case nil:
             togglePanel()
         }
@@ -1597,8 +1630,9 @@ final class Tracker: ObservableObject {
         napLog = []
         withAnimation(.spring) {
             napUntil = minutes.map { Date().addingTimeInterval($0 * 60) } ?? .distantFuture
-            bubble = nil; expanded = false
+            bubble = nil
         }
+        hidePanel()
         updateActivity(Date())
     }
 
@@ -3263,11 +3297,14 @@ private func sectionHeader(_ title: String) -> some View {
     Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
 }
 
-extension AnyTransition {
-    /// The panel pops out of the robot (bottom-right corner) and folds back into it.
-    static var panel: AnyTransition {
-        .asymmetric(insertion: .scale(scale: 0.2, anchor: .bottomTrailing).combined(with: .opacity),
-                    removal: .scale(scale: 0.2, anchor: .bottomTrailing).combined(with: .opacity))
+extension View {
+    /// The panel pops out of the buddy (bottom-right corner) and folds back into it.
+    /// Only drawing changes (scale and fade), never layout, so it stays smooth.
+    func popOut(_ shown: Bool) -> some View {
+        compositingGroup()
+            .scaleEffect(shown ? 1 : 0.2, anchor: .bottomTrailing)
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
     }
 }
 
@@ -3291,10 +3328,10 @@ struct RootView: View {
             if tracker.expanded, let sid = tracker.chatSession {
                 ChatView(tracker: tracker, draft: tracker.chatDraft, sessionId: sid)
                     .environment(\.colorScheme, Palette.scheme)
-                    .transition(.panel)
+                    .popOut(tracker.panelShown)
             } else if tracker.expanded {
                 TaskListView(tracker: tracker)
-                    .transition(.panel)
+                    .popOut(tracker.panelShown)
             } else if let text = tracker.bubble {
                 SpeechBubble(text: text, color: tracker.mood.color)
                     .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
