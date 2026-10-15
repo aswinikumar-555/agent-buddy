@@ -212,7 +212,7 @@ The panel has four tabs: **Agents**, **Code** (PRs, PR stats, local stack, deplo
 
 Pick a look for the panel with ⚙︎ → **Theme**: **Midnight**, **Daylight**, **Ocean** or **Sunset**, **Auto** to follow your Mac's light/dark setting, or **Apple (iOS style)**.
 
-**Apple (iOS style)** looks like your iPhone: frosted glass over your desktop, Control Center style tiles, Settings style colored icons, and Apple's own colors in light and dark (it follows your Mac).
+**Apple (iOS style)** looks like your iPhone: Apple's Liquid Glass over your desktop (on macOS 26), Control Center style tiles, Settings style colored icons, and Apple's own colors in light and dark (it follows your Mac). Pick how see-through it is with ⚙︎ → **Glass**: **Clear**, **Balanced** or **Frosted**.
 
 <p align="center"><img src="docs/panel-apple.png" width="760" alt="The Apple (iOS style) theme in light and dark: frosted panels with Control Center style tiles, colored icon squares for each section, an iOS segmented control, and capsule buttons"></p>
 
