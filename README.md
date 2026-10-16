@@ -47,7 +47,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 **Your agents (Claude Code and Codex)**
 - Shows which agents are running, which need you, and what each one finished, in the agent's own words ("Fixed the flaky refund test; all 214 tests pass").
 - Click a bubble to jump straight to that agent's terminal.
-- **Remote mode:** approve permission prompts, answer an agent's questions, and reply when it finishes, all from the buddy. It can switch on by itself when you step away.
+- **Remote mode:** approve permission prompts and answer an agent's questions from the buddy. Turn it on with **Remote** in the panel header. A finished session never waits for the buddy: it always ends normally in the terminal.
 - **Chat:** send a message to any agent from the buddy, whether it's working or idle.
 - **`buddy say "…"`:** any agent or script can put a message on your screen.
 - **Codex too:** its chat history, messages from the buddy (through `codex queue` when it's idle), and permission prompts answered from the buddy in remote mode.
@@ -234,7 +234,7 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 | `dailyReminders` | Fixed-time reminders: `time`, `title`, `message`, `emoji`, and `activity` (`eat`, `drink` or `sleep`) for the buddy to act out | lunch 14:00, sleep 23:00 |
 | `stuckWaitingMinutes` / `stuckQuietMinutes` | When an agent counts as waiting too long / stuck | 10 / 20 |
 | `juggle` | Agents at once before it suggests finishing one | 5 |
-| `autoRemote` / `autoRemoteMinutes` | Remote mode on after being away this long | on / 5 |
+| `autoRemote` / `autoRemoteMinutes` | Switch Remote mode on by itself after you've been away this long | off / 5 |
 | `stackRoots` | Folders holding your projects (scanned for dev stacks, big logs, old worktrees) | `~/Developer`, `~/code`, `~/projects` |
 | `dbTunnels` | Local database tunnel ports to watch: `{ "env": "prod", "port": 5439 }` | none |
 | `ecsRegion` / `ecsClusters` | AWS ECS clusters to watch (read-only) | none |
@@ -242,7 +242,7 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 | `sites` | Health checks: `{ "name", "url", "prod" }`. Any 2xx/3xx answer counts as up | none |
 | `prodEnvs` | Names that mean production (in cluster names, tunnels, stack envs) | `prod`, `production` |
 | `prodPatterns` | Regexes for shell commands that touch production (secret names, prod hosts, …) | a few generic ones |
-| `features` | Turn features on or off by default, e.g. `{ "jira": false, "walking": true }`. Names: `stuckAlerts`, `autoRemote`, `juggling`, `claudeUsage`, `backgroundAgents`, `cloudBranches`, `pullRequests`, `prStats`, `deploys`, `devStack`, `logErrors`, `housekeeping`, `jira`, `sites`, `aws`, `ecs`, `gcp`, `codexCloud`, `prodWarning`, `water`, `breaks`, `dailyReminders`, `endOfDay`, `meetings`, `todos`, `timesheet`, `festivals`, `quickCapture`, `idleTricks`, `eyesFollow`, `walking`. A switch you flip in ⚙︎ → Features wins | all on except `walking` |
+| `features` | Turn features on or off by default, e.g. `{ "jira": false, "walking": true }`. Names: `stuckAlerts`, `autoRemote`, `juggling`, `claudeUsage`, `backgroundAgents`, `cloudBranches`, `pullRequests`, `prStats`, `deploys`, `devStack`, `logErrors`, `housekeeping`, `jira`, `sites`, `aws`, `ecs`, `gcp`, `codexCloud`, `prodWarning`, `water`, `breaks`, `dailyReminders`, `endOfDay`, `meetings`, `todos`, `timesheet`, `festivals`, `quickCapture`, `idleTricks`, `eyesFollow`, `walking`. A switch you flip in ⚙︎ → Features wins | all on except `walking` and `autoRemote` |
 | `gitlab` | GitLab projects to watch, like `repos` for GitHub: `{ "projects": ["group/project"], "host": "gitlab.example.com" }` (leave out `host` for gitlab.com) | none |
 | `jira` | `{ "site": "yourteam.atlassian.net", "email": "you@example.com" }`, plus optional `jql` (default: your open tickets). See [Jira](#jira) for the token | none |
 | `meetings` / `meetingHeadsUpMinutes` | Meeting heads-up from the Calendar app, and how many minutes before | on / 5 |

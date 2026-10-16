@@ -15,7 +15,7 @@
   "stuckWaitingMinutes": 10,
   "stuckQuietMinutes": 20,
   "juggle": 5,
-  "autoRemote": true,
+  "autoRemote": false,
   "autoRemoteMinutes": 5,
 
   "stackRoots": ["~/Developer"],
