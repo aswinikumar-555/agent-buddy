@@ -67,6 +67,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 - **Sites:** health checks for your staging and production URLs.
 - **Production warning:** a red **PROD** band when an agent runs a command against production or a production database tunnel is open.
 - **Housekeeping:** low disk space, huge log files, old git worktrees (it only reports; it never deletes).
+- **This Mac:** live CPU, memory and disk gauges, with a nudge when memory is nearly full or the CPU is flat out.
 - **PR stats:** your last 7 days (merged, opened, reviewed, time to merge) and a merged-PR leaderboard for your repos.
 
 **Your day**
