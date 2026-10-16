@@ -263,7 +263,9 @@ if !isSubagent && ["PostToolUse", "UserPromptSubmit", "Stop"].contains(event) {
     }
 }
 
-let interactive = remote && (event == "PermissionRequest" || event == "Stop")
+// Only permission prompts wait for an answer from the buddy (remote mode). A finished
+// session (Stop) never waits: it always ends normally in the terminal.
+let interactive = remote && event == "PermissionRequest"
 guard interactive else { append(out); exit(0) }
 
 let requestId = UUID().uuidString
