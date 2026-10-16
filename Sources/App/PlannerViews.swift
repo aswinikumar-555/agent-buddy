@@ -494,3 +494,50 @@ struct BackgroundCloudSection: View {
         }
     }
 }
+
+
+// MARK: - This Mac
+
+struct SystemCard: View {
+    @ObservedObject var tracker: Tracker
+
+    var body: some View {
+        card {
+            eyebrow("This Mac")
+            if let s = tracker.system {
+                HStack(spacing: 8) {
+                    gauge("CPU", s.cpu, "\(Int((s.cpu * 100).rounded()))%", "all cores")
+                    gauge("Memory", s.memFraction, "\(Int((s.memFraction * 100).rounded()))%",
+                          "\(SystemStats.gb(s.memUsed)) of \(SystemStats.gb(s.memTotal))")
+                    gauge("Disk", s.diskUsedFraction, SystemStats.gb(s.diskFree), "free of \(SystemStats.gb(s.diskTotal))")
+                }
+            } else {
+                Text("Reading…").font(.system(size: 11)).foregroundStyle(Palette.faint)
+            }
+        }
+    }
+
+    /// A ring that fills as it's used: green, then orange past 75%, red past 90%.
+    private func gauge(_ title: String, _ fraction: Double, _ value: String, _ detail: String) -> some View {
+        let color = SystemCard.color(fraction)
+        return VStack(spacing: 5) {
+            ZStack {
+                Circle().stroke(Palette.well, lineWidth: 6)
+                Circle().trim(from: 0, to: max(0.02, min(1, fraction)))
+                    .stroke(color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: fraction)
+                Text(value).font(.system(size: 11.5, weight: .bold, design: .rounded).monospacedDigit())
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.4), value: value)
+                    .minimumScaleFactor(0.7).lineLimit(1).padding(.horizontal, 6)
+            }
+            .frame(width: 62, height: 62)
+            Text(title).font(.system(size: 12, weight: .semibold))
+            Text(detail).font(.system(size: 10)).foregroundStyle(Palette.faint).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    static func color(_ f: Double) -> Color { f >= 0.9 ? Palette.red : f >= 0.75 ? Palette.orange : Palette.green }
+}

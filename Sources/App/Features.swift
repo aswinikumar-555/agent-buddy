@@ -6,7 +6,7 @@ enum Feature: String, CaseIterable, Identifiable {
     // Agents
     case stuckAlerts, autoRemote, juggling, claudeUsage, backgroundAgents, cloudBranches
     // Code
-    case pullRequests, prStats, deploys, devStack, logErrors, housekeeping, jira
+    case pullRequests, prStats, deploys, devStack, logErrors, housekeeping, jira, systemStats
     // Cloud
     case sites, aws, ecs, gcp, codexCloud, prodWarning
     // Your day
@@ -21,7 +21,7 @@ enum Feature: String, CaseIterable, Identifiable {
     var group: Group {
         switch self {
         case .stuckAlerts, .autoRemote, .juggling, .claudeUsage, .backgroundAgents, .cloudBranches: .agents
-        case .pullRequests, .prStats, .deploys, .devStack, .logErrors, .housekeeping, .jira: .code
+        case .pullRequests, .prStats, .deploys, .devStack, .logErrors, .housekeeping, .jira, .systemStats: .code
         case .sites, .aws, .ecs, .gcp, .codexCloud, .prodWarning: .cloud
         case .water, .breaks, .dailyReminders, .endOfDay, .meetings, .todos, .timesheet, .festivals, .quickCapture: .day
         case .idleTricks, .eyesFollow, .walking: .buddy
@@ -43,6 +43,7 @@ enum Feature: String, CaseIterable, Identifiable {
         case .logErrors: "Errors from local logs"
         case .housekeeping: "Disk, big logs, old worktrees"
         case .jira: "Jira"
+        case .systemStats: "This Mac (CPU, memory, disk)"
         case .sites: "Site health checks"
         case .aws: "AWS login"
         case .ecs: "AWS ECS services"

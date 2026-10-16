@@ -258,7 +258,7 @@ func sectionColor(_ title: String) -> Color {
         ("local stack", 0x34C759), ("deploys", 0x007AFF), ("errors", 0xFF3B30), ("housekeeping", 0x8E8E93),
         ("sites", 0x32ADE6), ("cloud run", 0x5AC8FA), ("cloud", 0x5AC8FA), ("meetings", 0xFF3B30), ("to-do", 0xFF9500),
         ("claude plan", 0xD97757), ("timesheet", 0x5856D6), ("today so far", 0x34C759), ("today", 0xFFCC00),
-        ("your last note", 0xFFCC00), ("quiet time", 0x5856D6), ("status", 0x8E8E93),
+        ("your last note", 0xFFCC00), ("quiet time", 0x5856D6), ("status", 0x8E8E93), ("this mac", 0x007AFF),
     ]
     return Color(hex: colors.first { t.hasPrefix($0.0) }?.1 ?? 0x8E8E93)
 }
@@ -274,6 +274,7 @@ func sectionIcon(_ title: String) -> String? {
         ("cloud", "cloud.fill"), ("meetings", "calendar"), ("to-do", "checklist"), ("claude plan", "gauge.with.dots.needle.50percent"),
         ("timesheet", "clock.fill"), ("today so far", "list.bullet.rectangle"), ("today", "sun.max.fill"),
         ("your last note", "note.text"), ("quiet time", "moon.fill"), ("status", "circle.grid.2x2.fill"),
+        ("this mac", "desktopcomputer"),
     ]
     return icons.first { t.hasPrefix($0.0) }?.1
 }
@@ -1021,6 +1022,7 @@ struct MeTab: View {
         if tracker.on(.meetings) && tracker.calendarAccess != .unknown { MeetingsCard(tracker: tracker, now: now) }
         if tracker.on(.todos) { TodoCard(tracker: tracker, draft: tracker.todoDraft) }
         if tracker.on(.claudeUsage) { UsageCard(tracker: tracker, now: now) }
+        if tracker.on(.systemStats) { SystemCard(tracker: tracker) }
         if tracker.on(.timesheet) { TimesheetCard(tracker: tracker, now: now) }
         VStack(alignment: .leading, spacing: 10) {
             eyebrow("Today")
@@ -1223,6 +1225,13 @@ struct StatusPills: View {
                     let next = openTodos.compactMap(\.due).filter { $0 > Date() }.min()
                     pill(late > 0 ? Palette.red : Palette.blue,
                          late > 0 ? "To-do · \(late) late" : next.map { "To-do · next \(Todo.timeText($0))" } ?? "To-do · \(openTodos.count)") {
+                        tracker.show(.me)
+                    }
+                }
+                if tracker.on(.systemStats), let m = tracker.system {
+                    let worst = max(m.cpu, m.memFraction, m.diskUsedFraction)
+                    pill(SystemCard.color(worst),
+                         "CPU \(Int((m.cpu * 100).rounded()))% · RAM \(Int((m.memFraction * 100).rounded()))% · \(SystemStats.gb(m.diskFree)) free") {
                         tracker.show(.me)
                     }
                 }

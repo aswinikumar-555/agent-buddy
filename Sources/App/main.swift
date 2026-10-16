@@ -422,6 +422,13 @@ final class Tracker: ObservableObject {
     private var lastPRPoll = Date.distantPast
     private var prSeeded = false
 
+    // This Mac: CPU, memory, disk (every 3 s while the panel is open, every 30 s otherwise)
+    @Published var system: SystemStats?
+    private let systemMonitor = SystemMonitor()
+    private var lastSystemRead = Date.distantPast
+    private var cpuHighSince: Date?
+    private var lastSystemNag = Date.distantPast
+
     // Pull request stats and leaderboard, last 7 days (every 30 min)
     @Published var prStats: PRStats?
     private var prStatsPolling = false
@@ -718,6 +725,7 @@ final class Tracker: ObservableObject {
         if now.timeIntervalSince(lastFeatureCheck) > 30 { lastFeatureCheck = now; clearDisabled() }
         if bubble != nil && now > bubbleUntil { withAnimation(.easeOut(duration: 0.3)) { bubble = nil; bubbleAction = nil } }
         if let until = napUntil, now >= until { wake() }
+        if on(.systemStats) && now.timeIntervalSince(lastSystemRead) > (panelShown ? 3 : 30) { readSystem(now) }
         if on(.pullRequests) && !prPolling && now.timeIntervalSince(lastPRPoll) > 120 { pollPRs() }
         if on(.housekeeping) && now.timeIntervalSince(lastHousekeeping) > 600 { scanHousekeeping() }
         if on(.prStats) && !prStatsPolling && now.timeIntervalSince(lastPRStats) > 1800 { pollPRStats() }
@@ -1887,6 +1895,24 @@ final class Tracker: ObservableObject {
         if !on(.jira) && !jiraIssues.isEmpty { jiraIssues = [] }
         if !on(.dailyReminders) && dueReminder != nil { dueReminder = nil }
         if !on(.endOfDay) && endOfDayDue { endOfDayDue = false }
+    }
+
+    // MARK: This Mac
+
+    private func readSystem(_ now: Date) {
+        lastSystemRead = now
+        let s = systemMonitor.read()
+        if s != system { system = s }
+        // A nudge (at most every 30 min) when memory is nearly full or the CPU has been flat out for a minute.
+        cpuHighSince = s.cpu > 0.9 ? (cpuHighSince ?? now) : nil
+        guard now.timeIntervalSince(lastSystemNag) > 1800 else { return }
+        if s.memFraction > 0.93 {
+            lastSystemNag = now
+            sayWork("🧠 Memory is almost full (\(Int(s.memFraction * 100))% of \(SystemStats.gb(s.memTotal))). Closing a few apps will help.", for: 12, action: .tab(.me))
+        } else if let since = cpuHighSince, now.timeIntervalSince(since) > 60 {
+            lastSystemNag = now
+            sayWork("🔥 The CPU has been at \(Int(s.cpu * 100))% for a minute. Something is working hard.", for: 10, action: .tab(.me))
+        }
     }
 
     // MARK: Background agents and cloud sessions

@@ -256,6 +256,8 @@ enum DocsRenderer {
                               end: now.addingTimeInterval(42 * 60), calendar: "Work", joinURL: URL(string: "https://meet.google.com/")),
                       Meeting(id: "m2", title: "Sprint planning", start: now.addingTimeInterval(95 * 60),
                               end: now.addingTimeInterval(155 * 60), calendar: "Work", joinURL: nil)]
+        t.system = SystemStats(cpu: 0.34, memUsed: 11.6 * 1_073_741_824, memTotal: 16 * 1_073_741_824,
+                               diskFree: 412 * 1_073_741_824, diskTotal: 994 * 1_073_741_824)
         t.backgroundAgents = [
             BackgroundAgent(id: "b1", sessionId: "b1", name: "Upgrade the image uploader", cwd: "/tmp/shop-web",
                             state: .waiting, waitingFor: "approve: npm install sharp"),
