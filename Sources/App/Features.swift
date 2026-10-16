@@ -66,7 +66,7 @@ enum Feature: String, CaseIterable, Identifiable {
     }
 
     /// Off unless you turn it on.
-    var defaultOn: Bool { self != .walking }
+    var defaultOn: Bool { self != .walking && self != .autoRemote }
 
     /// Where the choice from ⚙︎ is remembered (two older settings keep their keys).
     var defaultsKey: String {

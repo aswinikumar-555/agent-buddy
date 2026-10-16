@@ -274,7 +274,7 @@ final class Tracker: ObservableObject {
     /// Away for a few minutes while agents are running → remote mode on, so they wait for you
     /// here; back at the keyboard → off again, so you answer in the terminal.
     private func checkAutoRemote(idle: TimeInterval) {
-        guard config.autoRemote ?? true else { return }
+        guard config.autoRemote ?? false else { return }
         let away = (config.autoRemoteMinutes ?? 5) * 60
         if !remoteMode && idle >= away && !runningAgents.isEmpty {
             autoRemoteOn = true
