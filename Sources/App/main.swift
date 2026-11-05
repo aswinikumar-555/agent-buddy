@@ -513,6 +513,22 @@ final class Tracker: ObservableObject {
     }
     private var lastFeatureCheck = Date.distantPast
 
+    // A newer release on GitHub (checked a minute after launch, then every 6 hours)
+    @Published var update: AppUpdate?
+    private var lastUpdateCheck = Date().addingTimeInterval(-6 * 3600 + 60)
+
+    private func checkForUpdate(_ now: Date) {
+        lastUpdateCheck = now
+        Updates.check(current: Setup.version) { [weak self] found in
+            guard let self, self.on(.updateCheck) else { return }
+            if found != self.update { self.update = found }
+            // The bubble once per version; the ⚙︎ menu keeps the link after that.
+            guard let found, UserDefaults.standard.string(forKey: "updateAnnounced") != found.version else { return }
+            UserDefaults.standard.set(found.version, forKey: "updateAnnounced")
+            self.say("⬆️ Agent Buddy \(found.version) is out. Click to download it.", for: 20, action: .url(found.url))
+        }
+    }
+
     // Disk, huge logs, stale worktrees (every 10 min)
     @Published var housekeeping = Housekeeping()
     private var lastHousekeeping = Date.distantPast
@@ -734,6 +750,7 @@ final class Tracker: ObservableObject {
         if (on(.backgroundAgents) || on(.cloudBranches)) && !cloudAgentsPolling
             && now.timeIntervalSince(lastCloudAgentsPoll) > 20 { pollCloudAgents(now) }
         if on(.jira) && !jiraPolling && now.timeIntervalSince(lastJiraPoll) > 180 { pollJira() }
+        if on(.updateCheck) && Setup.version != "dev" && now.timeIntervalSince(lastUpdateCheck) > 6 * 3600 { checkForUpdate(now) }
         if on(.deploys), let gitlab = config.gitlab, GitLab.bin != nil, !gitlabDeploysPolling,
            now.timeIntervalSince(lastGitlabDeploys) > max(30, config.pollSeconds) {
             gitlabDeploysPolling = true
@@ -1895,6 +1912,7 @@ final class Tracker: ObservableObject {
         if !on(.jira) && !jiraIssues.isEmpty { jiraIssues = [] }
         if !on(.dailyReminders) && dueReminder != nil { dueReminder = nil }
         if !on(.endOfDay) && endOfDayDue { endOfDayDue = false }
+        if !on(.updateCheck) && update != nil { update = nil }
     }
 
     // MARK: This Mac

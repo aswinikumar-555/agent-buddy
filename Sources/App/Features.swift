@@ -12,7 +12,7 @@ enum Feature: String, CaseIterable, Identifiable {
     // Your day
     case water, breaks, dailyReminders, endOfDay, meetings, todos, timesheet, festivals, quickCapture
     // The buddy
-    case idleTricks, eyesFollow, walking
+    case idleTricks, eyesFollow, walking, updateCheck
 
     var id: String { rawValue }
 
@@ -24,7 +24,7 @@ enum Feature: String, CaseIterable, Identifiable {
         case .pullRequests, .prStats, .deploys, .devStack, .logErrors, .housekeeping, .jira, .systemStats: .code
         case .sites, .aws, .ecs, .gcp, .codexCloud, .prodWarning: .cloud
         case .water, .breaks, .dailyReminders, .endOfDay, .meetings, .todos, .timesheet, .festivals, .quickCapture: .day
-        case .idleTricks, .eyesFollow, .walking: .buddy
+        case .idleTricks, .eyesFollow, .walking, .updateCheck: .buddy
         }
     }
 
@@ -62,6 +62,7 @@ enum Feature: String, CaseIterable, Identifiable {
         case .idleTricks: "Idle tricks"
         case .eyesFollow: "Eyes follow your mouse"
         case .walking: "Walks along the screen"
+        case .updateCheck: "Tell me when a new version is out"
         }
     }
 

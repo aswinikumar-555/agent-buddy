@@ -636,6 +636,9 @@ struct TaskListView: View {
                 Button("Nap until I wake you") { tracker.nap(minutes: nil) }
             }
             Divider()
+            if let update = tracker.update {
+                Button("Download Agent Buddy \(update.version)…") { NSWorkspace.shared.open(update.url) }
+            }
             Button("Quit Agent Buddy") { NSApp.terminate(nil) }
         } label: {
             Image(systemName: "gearshape.fill").font(.system(size: 11)).foregroundStyle(Palette.muted)
