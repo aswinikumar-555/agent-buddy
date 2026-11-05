@@ -68,7 +68,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 - **Production warning:** a red **PROD** band when an agent runs a command against production or a production database tunnel is open.
 - **Housekeeping:** low disk space, huge log files, old git worktrees (it only reports; it never deletes).
 - **This Mac:** live CPU, memory and disk gauges, with a nudge when memory is nearly full or the CPU is flat out.
-- **PR stats:** your last 7 days (merged, opened, reviewed, time to merge) and a merged-PR leaderboard for your repos.
+- **PR stats:** your last 7 days (merged, opened, reviewed, time to merge) and every account with how many PRs each merged and opened, across every repo of the GitHub orgs in `repos`.
 
 **Your day**
 - Reminders for water, breaks, lunch and sleep, acted out by the buddy (it eats, drinks and sleeps). Quiet while your microphone is in use.
