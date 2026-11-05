@@ -81,7 +81,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 - End of day: a summary of what got done, ready to paste into standup, plus a note for tomorrow.
 - Nap: hold every alert for a while.
 
-**The buddy itself:** now and then it does a little trick while idle (a spin, a stretch, a yawn, a wave, a hop), its eyes follow your mouse, and if you like it can stroll along the bottom of your screen (off by default).
+**The buddy itself:** now and then it does a little trick while idle (a spin, a stretch, a yawn, a wave, a hop), its eyes follow your mouse, and if you like it can stroll along the bottom of your screen (off by default). When a new version is out, it tells you once, with a link to download it (⚙︎ keeps the link too).
 
 All alerts appear in the buddy's speech bubble. Mac notifications are off by default (turn them on in ⚙︎).
 
@@ -242,7 +242,7 @@ Edit `~/.agent-buddy/config.json`, then restart the buddy. Every setting is opti
 | `sites` | Health checks: `{ "name", "url", "prod" }`. Any 2xx/3xx answer counts as up | none |
 | `prodEnvs` | Names that mean production (in cluster names, tunnels, stack envs) | `prod`, `production` |
 | `prodPatterns` | Regexes for shell commands that touch production (secret names, prod hosts, …) | a few generic ones |
-| `features` | Turn features on or off by default, e.g. `{ "jira": false, "walking": true }`. Names: `stuckAlerts`, `autoRemote`, `juggling`, `claudeUsage`, `backgroundAgents`, `cloudBranches`, `pullRequests`, `prStats`, `deploys`, `devStack`, `logErrors`, `housekeeping`, `jira`, `sites`, `aws`, `ecs`, `gcp`, `codexCloud`, `prodWarning`, `water`, `breaks`, `dailyReminders`, `endOfDay`, `meetings`, `todos`, `timesheet`, `festivals`, `quickCapture`, `idleTricks`, `eyesFollow`, `walking`. A switch you flip in ⚙︎ → Features wins | all on except `walking` and `autoRemote` |
+| `features` | Turn features on or off by default, e.g. `{ "jira": false, "walking": true }`. Names: `stuckAlerts`, `autoRemote`, `juggling`, `claudeUsage`, `backgroundAgents`, `cloudBranches`, `pullRequests`, `prStats`, `deploys`, `devStack`, `logErrors`, `housekeeping`, `jira`, `systemStats`, `sites`, `aws`, `ecs`, `gcp`, `codexCloud`, `prodWarning`, `water`, `breaks`, `dailyReminders`, `endOfDay`, `meetings`, `todos`, `timesheet`, `festivals`, `quickCapture`, `idleTricks`, `eyesFollow`, `walking`, `updateCheck`. A switch you flip in ⚙︎ → Features wins | all on except `walking` and `autoRemote` |
 | `gitlab` | GitLab projects to watch, like `repos` for GitHub: `{ "projects": ["group/project"], "host": "gitlab.example.com" }` (leave out `host` for gitlab.com) | none |
 | `jira` | `{ "site": "yourteam.atlassian.net", "email": "you@example.com" }`, plus optional `jql` (default: your open tickets). See [Jira](#jira) for the token | none |
 | `meetings` / `meetingHeadsUpMinutes` | Meeting heads-up from the Calendar app, and how many minutes before | on / 5 |
