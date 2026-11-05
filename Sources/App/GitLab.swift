@@ -135,15 +135,15 @@ enum GitLab {
 
     // MARK: Stats
 
-    /// Merged MRs per author, your opened and reviewed counts, and your merge times, for the last 7 days.
-    static func stats(_ c: GitLabConfig) -> (me: String, merged: [String: Int], opened: Int, reviewed: Int, hours: [Double])? {
+    /// Merged and opened MRs per author, your opened and reviewed counts, and your merge times, for the last 7 days.
+    static func stats(_ c: GitLabConfig) -> (me: String, merged: [String: Int], openedBy: [String: Int], opened: Int, reviewed: Int, hours: [Double])? {
         guard bin != nil, let me = me(host: c.host) else { return nil }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
         f.timeZone = TimeZone(identifier: "UTC")
         let sinceDate = Date().addingTimeInterval(-7 * 86_400)
         let since = f.string(from: sinceDate)
-        var merged: [String: Int] = [:]
+        var merged: [String: Int] = [:], openedBy: [String: Int] = [:]
         var opened = 0, reviewed = 0
         var hours: [Double] = []
         for project in c.projects {
@@ -155,13 +155,17 @@ enum GitLab {
                 merged[author, default: 0] += 1
                 if author == me, let created = date(r["created_at"]) { hours.append(at.timeIntervalSince(created) / 3600) }
             }
-            opened += (api("projects/\(encode(project))/merge_requests?author_username=\(me)&created_after=\(since)&per_page=100",
-                           host: c.host) as? [Any])?.count ?? 0
+            for r in api("projects/\(encode(project))/merge_requests?state=all&created_after=\(since)&per_page=100", host: c.host) as? [[String: Any]] ?? [] {
+                let author = (r["author"] as? [String: Any])?["username"] as? String ?? ""
+                if author.isEmpty || author.hasSuffix("-bot") || author.contains("[bot]") { continue }
+                openedBy[author, default: 0] += 1
+                if author == me { opened += 1 }
+            }
             reviewed += (api("projects/\(encode(project))/merge_requests?reviewer_username=\(me)&updated_after=\(since)&per_page=100",
                              host: c.host) as? [[String: Any]])?
                 .filter { ($0["author"] as? [String: Any])?["username"] as? String != me }.count ?? 0
         }
-        return (me, merged, opened, reviewed, hours)
+        return (me, merged, openedBy, opened, reviewed, hours)
     }
 
     // MARK: Claude cloud branches

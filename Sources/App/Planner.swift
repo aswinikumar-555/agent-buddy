@@ -162,12 +162,13 @@ enum Timesheet {
 
 // MARK: - Pull request stats
 
-/// The last 7 days of pull requests in your repos: yours, and a merged-PR leaderboard.
+/// The last 7 days of pull requests in your repos: yours, and every account's merged and opened counts.
 struct PRStats: Equatable {
     struct Person: Equatable, Identifiable {
         var id: String { login }
         let login: String
         var merged: Int
+        var opened = 0
     }
     var me = ""
     var merged = 0
@@ -179,14 +180,23 @@ struct PRStats: Equatable {
 
     var myRank: Int? { board.firstIndex { $0.login == me }.map { $0 + 1 } }
 
+    /// Everyone with a merged or opened PR, most merged first.
+    static func board(merged: [String: Int], opened: [String: Int]) -> [Person] {
+        Set(merged.keys).union(opened.keys)
+            .map { Person(login: $0, merged: merged[$0] ?? 0, opened: opened[$0] ?? 0) }
+            .sorted { ($0.merged, $0.opened, $1.login) > ($1.merged, $1.opened, $0.login) }
+    }
+
     /// GitHub (repos) and GitLab (projects) together; your GitLab username counts as you.
     static func fetch(repos: [String], gitlab: GitLabConfig?) -> PRStats? {
         let fromGitHub = repos.isEmpty && gitlab != nil ? nil : fetchGitHub(repos: repos)
         guard let lab = gitlab.flatMap({ GitLab.stats($0) }) else { return fromGitHub }
         var s = fromGitHub ?? PRStats(me: lab.me)
-        var counts = Dictionary(uniqueKeysWithValues: s.board.map { ($0.login, $0.merged) })
-        if fromGitHub == nil { counts = [:] }
-        for (who, n) in lab.merged { counts[who == lab.me ? s.me : who, default: 0] += n }
+        var merged = Dictionary(uniqueKeysWithValues: s.board.map { ($0.login, $0.merged) })
+        var opened = Dictionary(uniqueKeysWithValues: s.board.map { ($0.login, $0.opened) })
+        if fromGitHub == nil { merged = [:]; opened = [:] }
+        for (who, n) in lab.merged { merged[who == lab.me ? s.me : who, default: 0] += n }
+        for (who, n) in lab.openedBy { opened[who == lab.me ? s.me : who, default: 0] += n }
         s.merged += lab.merged[lab.me] ?? 0
         s.opened += lab.opened
         s.reviewed += lab.reviewed
@@ -194,7 +204,7 @@ struct PRStats: Equatable {
             let all = (s.mergeHours.map { [$0] } ?? []) + lab.hours
             s.mergeHours = all.sorted()[all.count / 2]
         }
-        s.board = counts.map { Person(login: $0.key, merged: $0.value) }.sorted { ($0.merged, $1.login) > ($1.merged, $0.login) }
+        s.board = board(merged: merged, opened: opened)
         return s
     }
 
@@ -210,19 +220,31 @@ struct PRStats: Equatable {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         let since = ">=" + f.string(from: Date().addingTimeInterval(-7 * 86_400))
-        let scope = repos.flatMap { ["--repo", $0] }
+        // Every repo of the owners in `repos` (e.g. the whole org), not just the listed ones.
+        let owners = repos.compactMap { $0.split(separator: "/").first.map(String.init) }
+        let scope = Array(Set(owners)).sorted().flatMap { ["--owner", $0] }
+        // One search per day: GitHub returns at most 1000 results per search, and a busy org passes that in a week.
+        let days = (0...7).map { f.string(from: Date().addingTimeInterval(-Double($0) * 86_400)) }
+        func everyone(_ field: String, _ fields: String) -> [[String: Any]] {
+            days.flatMap { json(["search", "prs"] + scope + [field, $0, "--limit", "1000", "--json", fields]) ?? [] }
+        }
         var s = PRStats(me: login.trimmingCharacters(in: .whitespacesAndNewlines))
 
+        func isBot(_ author: [String: Any]) -> Bool {
+            let who = author["login"] as? String ?? ""
+            return who.isEmpty || author["type"] as? String == "Bot" || who.hasSuffix("[bot]") || who.hasPrefix("app/")
+        }
         let iso = ISO8601DateFormatter()
-        // Everyone's merged PRs (your repos), or just yours when no repos are set.
-        let mergedRows = json(["search", "prs"] + scope + (repos.isEmpty ? ["--author", "@me"] : [])
-                              + ["--merged-at", since, "--limit", "300", "--json", "author,createdAt,closedAt"]) ?? []
+        // Everyone's merged PRs (your orgs), or just yours when no repos are set.
+        let mergedRows = repos.isEmpty
+            ? json(["search", "prs", "--author", "@me", "--merged-at", since, "--limit", "300", "--json", "author,createdAt,closedAt"]) ?? []
+            : everyone("--merged-at", "author,createdAt,closedAt")
         var counts: [String: Int] = [:]
         var hours: [Double] = []
         for r in mergedRows {
             let author = r["author"] as? [String: Any] ?? [:]
+            if isBot(author) { continue }
             let who = author["login"] as? String ?? ""
-            if who.isEmpty || author["type"] as? String == "Bot" || who.hasSuffix("[bot]") || who.hasPrefix("app/") { continue }
             counts[who, default: 0] += 1
             if who == s.me, let a = iso.date(from: r["createdAt"] as? String ?? ""), let b = iso.date(from: r["closedAt"] as? String ?? "") {
                 hours.append(b.timeIntervalSince(a) / 3600)
@@ -230,12 +252,17 @@ struct PRStats: Equatable {
         }
         s.merged = counts[s.me] ?? 0
         if !hours.isEmpty { s.mergeHours = hours.sorted()[hours.count / 2] }
+        s.opened = json(["search", "prs"] + scope + ["--author", "@me", "--created", since, "--limit", "1000", "--json", "number"])?.count ?? 0
         if !repos.isEmpty {
-            s.board = counts.map { Person(login: $0.key, merged: $0.value) }
-                .sorted { ($0.merged, $1.login) > ($1.merged, $0.login) }
+            // Everyone's opened PRs, for the per-account table.
+            var opened: [String: Int] = [:]
+            for r in everyone("--created", "author") {
+                let author = r["author"] as? [String: Any] ?? [:]
+                if !isBot(author) { opened[author["login"] as? String ?? "", default: 0] += 1 }
+            }
+            s.board = board(merged: counts, opened: opened)
         }
-        s.opened = json(["search", "prs"] + scope + ["--author", "@me", "--created", since, "--limit", "100", "--json", "number"])?.count ?? 0
-        s.reviewed = (json(["search", "prs"] + scope + ["--reviewed-by", "@me", "--updated", since, "--limit", "100", "--json", "author"]) ?? [])
+        s.reviewed = (json(["search", "prs"] + scope + ["--reviewed-by", "@me", "--updated", since, "--limit", "1000", "--json", "author"]) ?? [])
             .filter { ($0["author"] as? [String: Any])?["login"] as? String != s.me }.count
         return s
     }

@@ -276,8 +276,9 @@ enum DocsRenderer {
                       priority: "Low", updated: now, url: nil),
         ]
         t.prStats = PRStats(me: "alex", merged: 6, opened: 7, reviewed: 9, mergeHours: 19,
-                            board: [.init(login: "maya", merged: 9), .init(login: "alex", merged: 6), .init(login: "sam", merged: 5),
-                                    .init(login: "lee", merged: 3), .init(login: "ari", merged: 2)], at: now)
+                            board: [.init(login: "maya", merged: 9, opened: 8), .init(login: "alex", merged: 6, opened: 7),
+                                    .init(login: "sam", merged: 5, opened: 6), .init(login: "lee", merged: 3, opened: 4),
+                                    .init(login: "ari", merged: 2, opened: 3), .init(login: "jo", merged: 0, opened: 2)], at: now)
         t.workStreakStart = now.addingTimeInterval(-(72 * 60))
         t.mood = .waiting
         return t

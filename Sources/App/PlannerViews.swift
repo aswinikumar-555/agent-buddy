@@ -359,23 +359,28 @@ struct PRStatsSection: View {
                         stat(s.mergeHours.map { $0 < 48 ? "\(Int($0.rounded())) h" : "\(Int(($0 / 24).rounded())) d" } ?? "–", "to merge")
                     }
                     if !s.board.isEmpty {
-                        Text("Merged PRs, whole team").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.top, 2)
-                        let top = s.board.first?.merged ?? 1
-                        let shown = Array(s.board.prefix(5)) + (s.myRank.map { $0 > 5 ? [s.board[$0 - 1]] : [] } ?? [])
-                        ForEach(shown) { p in
-                            let rank = (s.board.firstIndex(of: p) ?? 0) + 1
+                        HStack(spacing: 8) {
+                            Text("Every account · \(s.board.count)").frame(maxWidth: .infinity, alignment: .leading)
+                            Text("merged").frame(width: 44, alignment: .trailing)
+                            Text("opened").frame(width: 44, alignment: .trailing)
+                        }
+                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.top, 2)
+                        let top = max(1, s.board.first?.merged ?? 1)
+                        ForEach(Array(s.board.enumerated()), id: \.element.id) { i, p in
+                            let rank = i + 1
                             HStack(spacing: 8) {
-                                Text(rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : "\(rank).")
+                                Text(rank <= 3 && p.merged > 0 ? ["🥇", "🥈", "🥉"][rank - 1] : "\(rank).")
                                     .font(.system(size: 11, design: .monospaced)).frame(width: 22, alignment: .leading)
                                 Text(p.login == s.me ? "\(p.login) (you)" : p.login)
                                     .font(.system(size: 12, weight: p.login == s.me ? .semibold : .regular)).lineLimit(1)
-                                    .frame(width: 130, alignment: .leading)
+                                    .frame(width: 110, alignment: .leading)
                                 GeometryReader { g in
                                     Capsule().fill(p.login == s.me ? Palette.blue : Palette.faint.opacity(0.6))
                                         .frame(width: max(4, g.size.width * Double(p.merged) / Double(top)))
                                 }
                                 .frame(height: 6)
-                                Text("\(p.merged)").font(.system(size: 11, weight: .semibold, design: .rounded)).frame(width: 24, alignment: .trailing)
+                                Text("\(p.merged)").font(.system(size: 11, weight: .semibold, design: .rounded)).frame(width: 44, alignment: .trailing)
+                                Text("\(p.opened)").font(.system(size: 11, design: .rounded)).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
                             }
                         }
                     }
