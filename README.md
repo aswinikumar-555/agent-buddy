@@ -54,6 +54,7 @@ That's the whole install ([details](#install-on-your-mac)). Building takes about
 - **Background and cloud sessions:** Claude Code background agents (`claude --bg`), with an alert when one is blocked waiting for you, and cloud sessions working on `claude/…` branches, with an alert when they open a pull request.
 - Alerts when an agent has been waiting on you too long, seems stuck, or you're running too many at once.
 - **Claude plan usage:** how much of your 5-hour and weekly limits you've used, with a nudge at 80% and 95%.
+- **Switch Claude accounts:** the buddy remembers every Claude account you log in to (`/login` in Claude Code). The **Me** tab lists them with each one's last usage, and **Switch** moves Claude Code to another account when one runs out. It suggests one at 95%. Only the Claude login is swapped, so your MCP logins and settings stay as they are. New sessions use the new account.
 - Works with agents in any terminal, and with [herdr](https://herdr.dev) panes.
 
 **Your code and cloud**
