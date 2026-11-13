@@ -618,6 +618,14 @@ struct TaskListView: View {
             Button("Reset panel size") { tracker.resetPanelSize() }
             Divider()
             Button("Clear finished agents") { tracker.clearDone() }
+            if tracker.on(.claudeAccounts) && tracker.claudeAccounts.count > 1 {
+                Menu("Claude account") {
+                    ForEach(tracker.claudeAccounts) { acct in
+                        Toggle(acct.org.map { "\(acct.email) · \($0)" } ?? acct.email, isOn: Binding(get: { acct.id == tracker.activeClaudeAccount },
+                                                         set: { if $0 { tracker.switchClaudeAccount(to: acct.id) } }))
+                    }
+                }
+            }
             Menu("Features") {
                 ForEach(Feature.Group.allCases, id: \.self) { group in
                     Section(group.rawValue) {
@@ -628,6 +636,9 @@ struct TaskListView: View {
                 }
             }
             Toggle("Also show Mac notifications", isOn: $tracker.macNotifications)
+            Picker("Keep Mac awake", selection: $tracker.keepAwake) {
+                ForEach(KeepAwakeMode.allCases) { Text($0.title).tag($0) }
+            }
             Divider()
             if tracker.napping {
                 Button("Wake up") { tracker.wake() }
@@ -1025,6 +1036,7 @@ struct MeTab: View {
         if tracker.on(.meetings) && tracker.calendarAccess != .unknown { MeetingsCard(tracker: tracker, now: now) }
         if tracker.on(.todos) { TodoCard(tracker: tracker, draft: tracker.todoDraft) }
         if tracker.on(.claudeUsage) { UsageCard(tracker: tracker, now: now) }
+        if tracker.on(.claudeAccounts) { AccountsCard(tracker: tracker, now: now) }
         if tracker.on(.systemStats) { SystemCard(tracker: tracker) }
         if tracker.on(.timesheet) { TimesheetCard(tracker: tracker, now: now) }
         VStack(alignment: .leading, spacing: 10) {

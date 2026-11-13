@@ -463,6 +463,13 @@ final class Tracker: ObservableObject {
     @Published var usage: ClaudeUsage?
     private var lastUsageCheck = Date.distantPast
 
+    // Claude accounts you can switch between
+    @Published var claudeAccounts = ClaudeAccounts.load()
+    @Published var activeClaudeAccount: String?
+    @Published var switchingAccount = false
+    private var lastAccountCheck = Date.distantPast
+    private let accountQueue = DispatchQueue(label: "agent-buddy.claude-accounts")
+
     // Meetings from the Calendar app
     @Published var meetings: [Meeting] = []
     @Published var calendarAccess: MeetingWatcher.Access = .unknown
@@ -615,6 +622,13 @@ final class Tracker: ObservableObject {
     @Published var macNotifications = UserDefaults.standard.bool(forKey: "macNotifications") {
         didSet { UserDefaults.standard.set(macNotifications, forKey: "macNotifications") }
     }
+    /// Stop the Mac from going to sleep while you're away (⚙︎ → Keep Mac awake).
+    @Published var keepAwake = KeepAwakeMode(rawValue: UserDefaults.standard.string(forKey: "keepAwake") ?? "") ?? .off {
+        didSet {
+            UserDefaults.standard.set(keepAwake.rawValue, forKey: "keepAwake")
+            KeepAwake.apply(keepAwake)
+        }
+    }
     /// Which 3D character sits on the desktop.
     @Published var character = BuddyCharacterKind(rawValue: UserDefaults.standard.string(forKey: "character") ?? "") ?? .nori {
         didSet { UserDefaults.standard.set(character.rawValue, forKey: "character") }
@@ -654,6 +668,7 @@ final class Tracker: ObservableObject {
         Feature.configured = config.features ?? [:]
         if config.meetings == false { Feature.configured["meetings"] = Feature.configured["meetings"] ?? false }
         watchAppearance()
+        KeepAwake.apply(keepAwake)
         try? FileManager.default.createDirectory(at: buddyDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: repliesDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
@@ -746,6 +761,7 @@ final class Tracker: ObservableObject {
         if on(.housekeeping) && now.timeIntervalSince(lastHousekeeping) > 600 { scanHousekeeping() }
         if on(.prStats) && !prStatsPolling && now.timeIntervalSince(lastPRStats) > 1800 { pollPRStats() }
         if on(.claudeUsage) && now.timeIntervalSince(lastUsageCheck) > 20 { checkUsage(now) }
+        if on(.claudeAccounts) && !switchingAccount && now.timeIntervalSince(lastAccountCheck) > 60 { checkAccounts(now) }
         if on(.meetings) && now.timeIntervalSince(lastMeetingPoll) > 30 { checkMeetings(now) }
         if (on(.backgroundAgents) || on(.cloudBranches)) && !cloudAgentsPolling
             && now.timeIntervalSince(lastCloudAgentsPoll) > 20 { pollCloudAgents(now) }
@@ -2166,6 +2182,7 @@ final class Tracker: ObservableObject {
         let u = ClaudeUsage.load()
         if u != usage { usage = u }
         guard let u, now.timeIntervalSince(u.at) < 6 * 3600 else { return }
+        noteAccountUsage(u)
         for (name, window) in [("5-hour", u.fiveHour), ("weekly", u.week)] {
             guard let w = window, let resets = w.resets else { continue }
             let stamp = String(Int(resets.timeIntervalSince1970))
@@ -2173,10 +2190,96 @@ final class Tracker: ObservableObject {
                   UserDefaults.standard.string(forKey: "usageWarned.\(name).\(level)") != stamp else { continue }
             for l in [80, 95] where l <= level { UserDefaults.standard.set(stamp, forKey: "usageWarned.\(name).\(l)") }
             if level == 95 { alertUntil = now.addingTimeInterval(5) }
-            say("\(level == 95 ? "🚨" : "⚠️") You've used \(Int(w.percent))% of your Claude \(name) limit. It resets \(Tracker.when(resets)).",
-                for: 15, action: .tab(.me))
+            var text = "\(level == 95 ? "🚨" : "⚠️") You've used \(Int(w.percent))% of your Claude \(name) limit. It resets \(Tracker.when(resets))."
+            if level == 95, let other = spareClaudeAccount(now) { text += " Switch to \(other.email) in the Me tab." }
+            say(text, for: 15, action: .tab(.me))
             return
         }
+    }
+
+    // MARK: Claude accounts
+
+    /// Remembers the account Claude Code is logged in to, so you can switch back to it later.
+    private func checkAccounts(_ now: Date) {
+        lastAccountCheck = now
+        let list = claudeAccounts
+        accountQueue.async {
+            var updated = list
+            let current = ClaudeAccounts.remember(into: &updated)
+            let live = current?.id ?? ClaudeAccounts.liveID()
+            if updated != list { ClaudeAccounts.save(updated) }
+            DispatchQueue.main.async {
+                guard !self.switchingAccount else { return }
+                let isNew = current.map { c in !list.contains { $0.id == c.id } } ?? false
+                if updated != self.claudeAccounts { self.claudeAccounts = updated }
+                if live != self.activeClaudeAccount { self.activeClaudeAccount = live }
+                if isNew, let c = current, updated.count > 1 {
+                    self.say("👤 Saved your Claude account \(c.email). Switch accounts in the Me tab.", for: 8, action: .tab(.me))
+                }
+            }
+        }
+    }
+
+    func switchClaudeAccount(to id: String) {
+        guard !switchingAccount, id != activeClaudeAccount else { return }
+        switchingAccount = true
+        let list = claudeAccounts
+        accountQueue.async {
+            var updated = list
+            var failure: String?
+            do { try ClaudeAccounts.switchTo(id, list: &updated) } catch { failure = error.localizedDescription }
+            ClaudeAccounts.save(updated)
+            DispatchQueue.main.async {
+                self.switchingAccount = false
+                self.claudeAccounts = updated
+                if let failure {
+                    self.say("⚠️ \(failure)", for: 10, action: .tab(.me))
+                    return
+                }
+                self.activeClaudeAccount = id
+                // The usage shown was the old account's; the next Claude reply brings the new one's.
+                self.usage = nil
+                try? FileManager.default.removeItem(at: ClaudeUsage.url)
+                let email = updated.first { $0.id == id }?.email ?? "the other account"
+                self.say("🔁 Switched Claude to \(email). New sessions use it; restart running ones to move them over.",
+                         for: 10, action: .tab(.me))
+            }
+        }
+    }
+
+    func forgetClaudeAccount(_ id: String) {
+        let list = claudeAccounts
+        accountQueue.async {
+            var updated = list
+            ClaudeAccounts.forget(id, list: &updated)
+            ClaudeAccounts.save(updated)
+            DispatchQueue.main.async { self.claudeAccounts = updated }
+        }
+    }
+
+    /// Keeps the latest usage with the account it belongs to.
+    private func noteAccountUsage(_ u: ClaudeUsage) {
+        guard on(.claudeAccounts), let id = activeClaudeAccount,
+              let i = claudeAccounts.firstIndex(where: { $0.id == id }) else { return }
+        var a = claudeAccounts[i]
+        if let prior = a.usageAt, prior >= u.at { return }
+        a.fiveHour = u.fiveHour?.percent; a.fiveHourResets = u.fiveHour?.resets
+        a.week = u.week?.percent; a.weekResets = u.week?.resets
+        a.usageAt = u.at
+        claudeAccounts[i] = a
+        accountQueue.async {
+            // Merge into the file's latest copy, so a login saved meanwhile isn't lost.
+            var saved = ClaudeAccounts.load()
+            if let j = saved.firstIndex(where: { $0.id == a.id }) { saved[j] = a } else { saved.append(a) }
+            ClaudeAccounts.save(saved)
+        }
+    }
+
+    /// Another saved account with room left, to suggest when this one runs out.
+    func spareClaudeAccount(_ now: Date = Date()) -> ClaudeAccount? {
+        guard on(.claudeAccounts) else { return nil }
+        return claudeAccounts.filter { $0.id != activeClaudeAccount && ($0.usedPercent(now) ?? 0) < 80 }
+            .min { ($0.usedPercent(now) ?? 0) < ($1.usedPercent(now) ?? 0) }
     }
 
     /// "at 4:30 PM", or "Thu at 4:30 PM" if it isn't today.
@@ -3649,6 +3752,9 @@ struct RootView: View {
                     Button("Clear finished tasks") { tracker.clearDone() }
                     Toggle("Remote mode (answer agents here)", isOn: $tracker.remoteMode)
                     Toggle("Also show Mac notifications", isOn: $tracker.macNotifications)
+                    Picker("Keep Mac awake", selection: $tracker.keepAwake) {
+                        ForEach(KeepAwakeMode.allCases) { Text($0.title).tag($0) }
+                    }
                     Button(tracker.aws.isLoggedOut ? "AWS: log in…" : "AWS: check login now") {
                         if tracker.aws.isLoggedOut { tracker.loginAws() } else { tracker.checkAws() }
                     }

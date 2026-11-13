@@ -4,7 +4,7 @@ import Foundation
 
 enum Feature: String, CaseIterable, Identifiable {
     // Agents
-    case stuckAlerts, autoRemote, juggling, claudeUsage, backgroundAgents, cloudBranches
+    case stuckAlerts, autoRemote, juggling, claudeUsage, claudeAccounts, backgroundAgents, cloudBranches
     // Code
     case pullRequests, prStats, deploys, devStack, logErrors, housekeeping, jira, systemStats
     // Cloud
@@ -20,7 +20,7 @@ enum Feature: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .stuckAlerts, .autoRemote, .juggling, .claudeUsage, .backgroundAgents, .cloudBranches: .agents
+        case .stuckAlerts, .autoRemote, .juggling, .claudeUsage, .claudeAccounts, .backgroundAgents, .cloudBranches: .agents
         case .pullRequests, .prStats, .deploys, .devStack, .logErrors, .housekeeping, .jira, .systemStats: .code
         case .sites, .aws, .ecs, .gcp, .codexCloud, .prodWarning: .cloud
         case .water, .breaks, .dailyReminders, .endOfDay, .meetings, .todos, .timesheet, .festivals, .quickCapture: .day
@@ -34,6 +34,7 @@ enum Feature: String, CaseIterable, Identifiable {
         case .autoRemote: "Remote mode when you step away"
         case .juggling: "Too-many-agents nudge"
         case .claudeUsage: "Claude plan usage"
+        case .claudeAccounts: "Switch Claude accounts"
         case .backgroundAgents: "Claude background agents"
         case .cloudBranches: "Claude cloud sessions (claude/ branches)"
         case .pullRequests: "Pull requests"

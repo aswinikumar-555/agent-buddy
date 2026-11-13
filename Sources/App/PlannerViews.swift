@@ -546,3 +546,67 @@ struct SystemCard: View {
 
     static func color(_ f: Double) -> Color { f >= 0.9 ? Palette.red : f >= 0.75 ? Palette.orange : Palette.green }
 }
+
+// MARK: - Claude accounts
+
+/// Every Claude account you've logged in to, with a button to switch Claude Code to it.
+struct AccountsCard: View {
+    @ObservedObject var tracker: Tracker
+    let now: Date
+
+    var body: some View {
+        card {
+            HStack {
+                eyebrow("Claude accounts")
+                Spacer()
+                if tracker.switchingAccount { ProgressView().controlSize(.small) }
+            }
+            if tracker.claudeAccounts.isEmpty {
+                Text("Log in to Claude Code and the buddy remembers the account. Run /login with another account to add it, then switch between them here when one runs out.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.faint).fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(tracker.claudeAccounts) { row($0) }
+                Text("To add another account or plan, run /login in Claude Code. For the same email's team plan, pick that organization when you log in.")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 10)).foregroundStyle(Palette.faint)
+            }
+        }
+    }
+
+    private func row(_ a: ClaudeAccount) -> some View {
+        let active = a.id == tracker.activeClaudeAccount
+        let used = a.usedPercent(now)
+        return HStack(spacing: 8) {
+            Image(systemName: active ? "checkmark.circle.fill" : "person.circle")
+                .font(.system(size: 14)).foregroundStyle(active ? Palette.green : Palette.muted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(a.email).font(.system(size: 12, weight: active ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
+                Text(details(a, used)).font(.system(size: 10)).foregroundStyle(Palette.faint).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let used {
+                Text("\(Int(used.rounded()))%").font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(UsageCard.color(used))
+            }
+            if active {
+                Text("In use").font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.green)
+            } else {
+                Button("Switch") { tracker.switchClaudeAccount(to: a.id) }
+                    .buttonStyle(ActionButtonStyle(color: Palette.blue, small: true))
+                    .disabled(tracker.switchingAccount)
+            }
+        }
+        .contextMenu {
+            if !active { Button("Switch to this account") { tracker.switchClaudeAccount(to: a.id) } }
+            Button("Forget this account", role: .destructive) { tracker.forgetClaudeAccount(a.id) }
+        }
+    }
+
+    private func details(_ a: ClaudeAccount, _ used: Double?) -> String {
+        var parts = [a.org, a.plan].compactMap { $0 }
+        if used != nil, let at = a.usageAt, now.timeIntervalSince(at) > 1800 {
+            parts.append("usage as of \(formatDuration(now.timeIntervalSince(at))) ago")
+        }
+        return parts.isEmpty ? "Claude account" : parts.joined(separator: " · ")
+    }
+}
